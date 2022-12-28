@@ -19,7 +19,13 @@ typedef struct _GUID
   unsigned short Data2;
   unsigned short Data3;
   unsigned char Data4[8];
-} GUID;
+} GUID, *PGUID;
+
+bool NullGuid(PGUID pGuid)
+{
+  return pGuid != NULL && pGuid->Data1 == 0 && pGuid->Data2 == 0 &&
+         pGuid->Data3 == 0 && (ULONGLONG) pGuid->Data4 == 0;
+}
 
 // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/9d33df18-7aee-4065-9121-4eabe41c29d4
 #define MAXREGSECT 0xFFFFFFFA
@@ -102,6 +108,8 @@ int module_load(
 
   const uint8_t* block_data = NULL;
   COMPOUND_FILE_HEADER* ole = NULL;
+
+  yr_set_integer(0, module_object, "is_ole");
 
   foreach_memory_block(iterator, block)
   {
