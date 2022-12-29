@@ -85,6 +85,46 @@ const GUID CLSID_NULL = {};
 
 begin_declarations
   declare_integer("is_ole");
+
+  // Constants
+  declare_integer("MAXREGSECT");
+  declare_integer("DIFSECT");
+  declare_integer("FATSECT");
+  declare_integer("ENDOFCHAIN");
+  declare_integer("FREESECT");
+
+  declare_integer("VERSION_MINOR");
+  declare_integer("VERSION_MAJOR_3");
+  declare_integer("VERSION_MAJOR_4");
+
+  declare_integer("BYTE_ORDER_LITTLE_ENDIAN");
+
+  declare_integer("SECTOR_SHIFT_VERSION_3");
+  declare_integer("SECTOR_SHIFT_VERSION_4");
+  declare_integer("SECTOR_SIZE_VERSION_3");
+  declare_integer("SECTOR_SIZE_VERSION_4");
+
+  declare_integer("MINI_SECTOR_SHIFT");
+  declare_integer("MINI_SECTOR_SIZE");
+
+  declare_integer("NUMBER_OF_DIRECTORY_SECTORS_VERSION_3");
+
+  declare_integer("MINI_STREAM_CUTOFF_SIZE");
+
+  // Header
+  begin_struct("compound_file_header")
+    ;
+    begin_struct("header_clsid")
+      ;
+      declare_integer("data1");
+      declare_integer("data2");
+      declare_integer("data3");
+      declare_integer("data4");
+    end_struct("header_clsid");
+    declare_integer("version_minor");
+    declare_integer("version_major");
+  end_struct("compound_file_header");
+
 end_declarations
 
 int module_initialize(YR_MODULE* module)
@@ -97,6 +137,105 @@ int module_finalize(YR_MODULE* module)
   return ERROR_SUCCESS;
 }
 
+void set_constants(YR_OBJECT* module_object){
+  yr_set_integer(MAXREGSECT, module_object, "MAXREGSECT");
+  yr_set_integer(DIFSECT, module_object, "DIFSECT");
+  yr_set_integer(FATSECT, module_object, "FATSECT");
+  yr_set_integer(ENDOFCHAIN, module_object, "ENDOFCHAIN");
+  yr_set_integer(FREESECT, module_object, "FREESECT");
+  yr_set_integer(VERSION_MINOR, module_object, "VERSION_MINOR");
+  yr_set_integer(VERSION_MAJOR_3, module_object, "VERSION_MAJOR_3");
+  yr_set_integer(VERSION_MAJOR_4, module_object, "VERSION_MAJOR_4");
+  yr_set_integer(
+      BYTE_ORDER_LITTLE_ENDIAN, module_object, "BYTE_ORDER_LITTLE_ENDIAN");
+  yr_set_integer(
+      SECTOR_SHIFT_VERSION_3, module_object, "SECTOR_SHIFT_VERSION_3");
+  yr_set_integer(
+      SECTOR_SHIFT_VERSION_4, module_object, "SECTOR_SHIFT_VERSION_4");
+  yr_set_integer(SECTOR_SIZE_VERSION_3, module_object, "SECTOR_SIZE_VERSION_3");
+  yr_set_integer(SECTOR_SIZE_VERSION_4, module_object, "SECTOR_SIZE_VERSION_4");
+  yr_set_integer(MINI_SECTOR_SHIFT, module_object, "MINI_SECTOR_SHIFT");
+  yr_set_integer(MINI_SECTOR_SIZE, module_object, "MINI_SECTOR_SIZE");
+  yr_set_integer(
+      NUMBER_OF_DIRECTORY_SECTORS_VERSION_3,
+      module_object,
+      "NUMBER_OF_DIRECTORY_SECTORS_VERSION_3");
+  yr_set_integer(
+      MINI_STREAM_CUTOFF_SIZE, module_object, "MINI_STREAM_CUTOFF_SIZE");
+}
+
+void set_file_header(YR_OBJECT* module_object, PCOMPOUND_FILE_HEADER pHeader)
+{
+  yr_set_integer(
+      pHeader->header_clsid.Data1,
+      module_object,
+      "compound_file_header.header_clsid.data1");
+  yr_set_integer(
+      pHeader->header_clsid.Data2,
+      module_object,
+      "compound_file_header.header_clsid.data2");
+  yr_set_integer(
+      pHeader->header_clsid.Data3,
+      module_object,
+      "compound_file_header.header_clsid.data3");
+  yr_set_integer(
+      pHeader->header_clsid.Data4,
+      module_object,
+      "compound_file_header.header_clsid.data4");
+  yr_set_integer(
+      pHeader->version_minor,
+      module_object,
+      "compound_file_header.version_minor");
+  yr_set_integer(
+      pHeader->version_major,
+      module_object,
+      "compound_file_header.version_major");
+}
+
+bool is_valid_header(PCOMPOUND_FILE_HEADER pHeader)
+{
+  return
+      // Identification signature for the compound file structure, and MUST be
+      // set to the HEADER_SIGNATURE value.
+      pHeader->header_signature == HEADER_SIGNATURE &&
+
+      // Reserved and unused class ID that MUST be set to all zeroes
+      // (CLSID_NULL).
+      IsEqualGUID(pHeader->header_clsid, CLSID_NULL) &&
+
+      // Version number for nonbreaking changes SHOULD be set to VERSION_MINOR
+      // if the major version field is either VERSION_MAJOR_3 or
+      // VERSION_MAJOR_4. Version number for breaking changes MUST be set to
+      // either VERSION_MAJOR_3 or VERSION_MAJOR_4.
+      pHeader->version_minor == VERSION_MINOR &&
+      (pHeader->version_major == VERSION_MAJOR_3 ||
+       pHeader->version_major == VERSION_MAJOR_4) &&
+
+      // This field MUST be set to BYTE_ORDER_LITTLE_ENDIAN
+      pHeader->byte_order == BYTE_ORDER_LITTLE_ENDIAN &&
+
+      // This field MUST be set to SECTOR_SHIFT_VERSION_3, or
+      // SECTOR_SHIFT_VERSION_4, depending on the Major Version field.
+      ((pHeader->version_major == VERSION_MAJOR_3 &&
+        pHeader->sector_shift == SECTOR_SHIFT_VERSION_3) ||
+       (pHeader->version_major == VERSION_MAJOR_4 &&
+        pHeader->sector_shift == SECTOR_SHIFT_VERSION_4)) &&
+
+      // This field MUST be set to MINI_SECTOR_SHIFT.
+      pHeader->mini_sector_shift == MINI_SECTOR_SHIFT &&
+
+      // This field MUST be set to all zeroes.
+      !pHeader->reserved[0] && !pHeader->reserved[1] && !pHeader->reserved[2] &&
+      !pHeader->reserved[3] && !pHeader->reserved[4] && !pHeader->reserved[5] &&
+
+      // If Major Version is 3, the Number of Directory Sectors MUST be zero.
+      (pHeader->version_major != VERSION_MAJOR_3 ||
+       pHeader->number_of_directory_sectors == 0) &&
+
+      // This integer field MUST be set to MINI_STREAM_CUTOFF_SIZE.
+      pHeader->mini_stream_cutoff_size == MINI_STREAM_CUTOFF_SIZE;
+}
+
 int module_load(
     YR_SCAN_CONTEXT* context,
     YR_OBJECT* module_object,
@@ -107,51 +246,23 @@ int module_load(
   YR_MEMORY_BLOCK_ITERATOR* iterator = context->iterator;
 
   const uint8_t* block_data = NULL;
-  COMPOUND_FILE_HEADER* ole = NULL;
+  COMPOUND_FILE_HEADER* pHeader = NULL;
 
   yr_set_integer(0, module_object, "is_ole");
+  set_constants(module_object);
 
   foreach_memory_block(iterator, block)
   {
     block_data = block->fetch_data(block);
 
+    // Cast to COMPOUND_FILE_HEADER.
     if (block_data == NULL || block->size < sizeof(COMPOUND_FILE_HEADER))
       continue;
 
-    ole = (PCOMPOUND_FILE_HEADER) block_data;
+    pHeader = (PCOMPOUND_FILE_HEADER) block_data;
+    set_file_header(module_object, pHeader);
 
-    if (ole->header_signature != HEADER_SIGNATURE)
-      continue;
-
-    if (!IsEqualGUID(ole->header_clsid, CLSID_NULL))
-      continue;
-
-    if (ole->version_minor != VERSION_MINOR ||
-        (ole->version_major != VERSION_MAJOR_3 &&
-         ole->version_major != VERSION_MAJOR_4))
-      continue;
-
-    if (ole->byte_order != BYTE_ORDER_LITTLE_ENDIAN)
-      continue;
-
-    if ((ole->version_major == VERSION_MAJOR_3 &&
-         ole->sector_shift != SECTOR_SHIFT_VERSION_3) ||
-        (ole->version_major == VERSION_MAJOR_4 &&
-         ole->sector_shift != SECTOR_SHIFT_VERSION_4))
-      continue;
-
-    if (ole->mini_sector_shift != MINI_SECTOR_SHIFT)
-      continue;
-
-    if (ole->reserved[0] || ole->reserved[1] || ole->reserved[2] ||
-        ole->reserved[3] || ole->reserved[4] || ole->reserved[5])
-      continue;
-
-    if (ole->version_major == VERSION_MAJOR_3 &&
-        ole->number_of_directory_sectors != 0)
-      continue;
-
-    if (ole->mini_stream_cutoff_size != MINI_STREAM_CUTOFF_SIZE)
+    if (!is_valid_header(pHeader))
       continue;
 
     yr_set_integer(1, module_object, "is_ole");
