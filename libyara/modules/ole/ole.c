@@ -5,6 +5,10 @@
 
 #define MODULE_NAME ole
 
+/**
+ * Windows types and macros
+ */
+
 typedef uint8_t BYTE;
 typedef uint16_t WORD;
 typedef uint16_t WCHAR;
@@ -12,6 +16,7 @@ typedef int16_t SHORT;
 typedef uint32_t DWORD;
 typedef int32_t LONG;
 typedef uint32_t ULONG;
+typedef int64_t LONGLONG;
 typedef uint64_t ULONGLONG;
 
 // https://learn.microsoft.com/en-us/windows/win32/api/guiddef/ns-guiddef-guid
@@ -23,23 +28,34 @@ typedef struct _GUID
   ULONGLONG Data4;
 } GUID, *PGUID;
 
+// https://learn.microsoft.com/en-us/windows/win32/api/minwinbase/ns-minwinbase-filetime
+typedef struct _FILETIME
+{
+  DWORD dwLowDateTime;
+  DWORD dwHighDateTime;
+} FILETIME, *PFILETIME, *LPFILETIME;
+
 // https://learn.microsoft.com/en-us/windows/win32/api/guiddef/nf-guiddef-isequalguid
 #define IsEqualGUID(rguid1, rguid2)                                \
   (rguid1.Data1 == rguid2.Data1 && rguid1.Data2 == rguid2.Data2 && \
    rguid1.Data3 == rguid2.Data3 && rguid1.Data4 == rguid2.Data4)
 
+/**
+ * Compound File Binary File Format types and macros
+ */
+
 // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/9d33df18-7aee-4065-9121-4eabe41c29d4
-#define MAXREGSECT 0xFFFFFFFA
-#define DIFSECT    0xFFFFFFFC
-#define FATSECT    0xFFFFFFFD
-#define ENDOFCHAIN 0xFFFFFFFE
-#define FREESECT   0xFFFFFFFF
+#define SECTOR_NUMBER_MAXREGSECT 0xFFFFFFFA
+#define SECTOR_NUMBER_DIFSECT    0xFFFFFFFC
+#define SECTOR_NUMBER_FATSECT    0xFFFFFFFD
+#define SECTOR_NUMBER_ENDOFCHAIN 0xFFFFFFFE
+#define SECTOR_NUMBER_FREESECT   0xFFFFFFFF
 
 // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/05060311-bfce-4b12-874d-71fd4ce63aea
 typedef struct _COMPOUND_FILE_HEADER
 {
-  ULONGLONG header_signature;
-  GUID header_clsid;
+  ULONGLONG signature;
+  GUID clsid;
   WORD version_minor;
   WORD version_major;
   WORD byte_order;
@@ -49,7 +65,7 @@ typedef struct _COMPOUND_FILE_HEADER
   DWORD number_of_directory_sectors;
   DWORD number_of_fat_sectors;
   DWORD first_directory_sector_location;
-  DWORD transaction_signature_number;
+  DWORD transaction_signature;
   DWORD mini_stream_cutoff_size;
   DWORD first_mini_fat_sector_location;
   DWORD number_of_mini_fat_sectors;
@@ -76,22 +92,85 @@ const GUID CLSID_NULL = {};
 #define SECTOR_SIZE_VERSION_4 1 << SECTOR_SHIFT_VERSION_4
 
 #define MINI_SECTOR_SHIFT 0x0006
-
-#define MINI_SECTOR_SIZE 1 << MINI_SECTOR_SHIFT
+#define MINI_SECTOR_SIZE  1 << MINI_SECTOR_SHIFT
 
 #define NUMBER_OF_DIRECTORY_SECTORS_VERSION_3 0x00000000
 
 #define MINI_STREAM_CUTOFF_SIZE 0x00001000
 
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/30e1013a-a0ff-4404-9ccf-d75d835ff404
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/c5d235f7-b73c-4ec5-bf8d-5c08306cd023
+typedef struct _SECTOR_3
+{
+  DWORD next_sector_in_chain[128];
+} FAT_SECTOR_3, *PFAT_SECTOR_3, MINI_FAT_SECTOR_3, *PMINI_FAT_SECTOR_3;
+
+typedef struct _SECTOR_4
+{
+  DWORD next_sector_in_chain[1024];
+} FAT_SECTOR_4, *PFAT_SECTOR_4, MINI_FAT_SECTOR_4, *PMINI_FAT_SECTOR_4;
+
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/0afa4e43-b18f-432a-9917-4f276eca7a73
+typedef struct _DIFAT_SECTOR_3
+{
+  DWORD fat_sector_location[127];
+  DWORD next_difat_sector_location;
+} DIFAT_SECTOR_3, *PDIFAT_SECTOR_3;
+
+typedef struct _DIFAT_SECTOR_4
+{
+  DWORD fat_sector_location[1023];
+  DWORD next_difat_sector_location;
+} DIFAT_SECTOR_4, *PDIFAT_SECTOR_4;
+
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/60fe8611-66c3-496b-b70d-a504c94c9ace
+
+#define STREAM_NUMBER_MAXREGSID 0xFFFFFFFA
+#define STREAM_NUMBER_NOSTREAM  0xFFFFFFFF
+
+typedef struct _DIRECTORY_ENTRY
+{
+  WCHAR name[32];
+  WORD name_length;
+  BYTE object_type;
+  BYTE color_flag;
+  DWORD left_sibling_id;
+  DWORD right_sibling_id;
+  DWORD child_id;
+  GUID clsid;
+  DWORD state_bits;
+  FILETIME creation_time;
+  FILETIME modified_time;
+  DWORD starting_sector_location;
+  ULONGLONG stream_size;
+} DIRECTORY_ENTRY, *PDIRECTORY_ENTRY;
+
+#define OBJECT_TYPE_UNKNOWN      0x00
+#define OBJECT_TYPE_UNALLOCATED  0x00
+#define OBJECT_TYPE_STORAGE      0x01
+#define OBJECT_TYPE_STREAM       0x02
+#define OBJECT_TYPE_ROOT_STORAGE 0x05
+
+#define COLOR_FLAG_RED   0x00
+#define COLOR_FLAG_BLACK 0x01
+
+#define MAX_STREAM_SIZE_VERSION_3 0x80000000
+
+/**
+ * Declarations
+ */
+
 begin_declarations
   declare_integer("is_ole");
 
   // Constants
-  declare_integer("MAXREGSECT");
-  declare_integer("DIFSECT");
-  declare_integer("FATSECT");
-  declare_integer("ENDOFCHAIN");
-  declare_integer("FREESECT");
+  declare_integer("SECTOR_NUMBER_MAXREGSECT");
+  declare_integer("SECTOR_NUMBER_DIFSECT");
+  declare_integer("SECTOR_NUMBER_FATSECT");
+  declare_integer("SECTOR_NUMBER_ENDOFCHAIN");
+  declare_integer("SECTOR_NUMBER_FREESECT");
+
+  declare_integer("HEADER_SIGNATURE");
 
   declare_integer("VERSION_MINOR");
   declare_integer("VERSION_MAJOR_3");
@@ -111,19 +190,48 @@ begin_declarations
 
   declare_integer("MINI_STREAM_CUTOFF_SIZE");
 
+  declare_integer("STREAM_NUMBER_MAXREGSID");
+  declare_integer("STREAM_NUMBER_NOSTREAM");
+
+  declare_integer("OBJECT_TYPE_UNKNOWN");
+  declare_integer("OBJECT_TYPE_UNALLOCATED");
+  declare_integer("OBJECT_TYPE_STORAGE");
+  declare_integer("OBJECT_TYPE_STREAM");
+  declare_integer("OBJECT_TYPE_ROOT_STORAGE");
+
+  declare_integer("COLOR_FLAG_RED");
+  declare_integer("COLOR_FLAG_BLACK");
+
+  declare_integer("MAX_STREAM_SIZE_VERSION_3");
+
   // Header
-  begin_struct("compound_file_header")
+  begin_struct("header")
     ;
-    begin_struct("header_clsid")
+    declare_integer("signature");
+    begin_struct("clsid")
       ;
       declare_integer("data1");
       declare_integer("data2");
       declare_integer("data3");
       declare_integer("data4");
-    end_struct("header_clsid");
+    end_struct("clsid");
     declare_integer("version_minor");
     declare_integer("version_major");
-  end_struct("compound_file_header");
+    declare_integer("byte_order");
+    declare_integer("sector_shift");
+    declare_integer("mini_sector_shift");
+    declare_integer("reserved");
+    declare_integer("number_of_directory_sectors");
+    declare_integer("number_of_fat_sectors");
+    declare_integer("first_directory_sector_location");
+    declare_integer("transaction_signature");
+    declare_integer("mini_stream_cutoff_size");
+    declare_integer("first_mini_fat_sector_location");
+    declare_integer("number_of_mini_fat_sectors");
+    declare_integer("first_difat_sector_location");
+    declare_integer("number_of_difat_sectors");
+    // @TODO: Difat appart?
+  end_struct("header");
 
 end_declarations
 
@@ -137,12 +245,17 @@ int module_finalize(YR_MODULE* module)
   return ERROR_SUCCESS;
 }
 
-void set_constants(YR_OBJECT* module_object){
-  yr_set_integer(MAXREGSECT, module_object, "MAXREGSECT");
-  yr_set_integer(DIFSECT, module_object, "DIFSECT");
-  yr_set_integer(FATSECT, module_object, "FATSECT");
-  yr_set_integer(ENDOFCHAIN, module_object, "ENDOFCHAIN");
-  yr_set_integer(FREESECT, module_object, "FREESECT");
+void set_constants(YR_OBJECT* module_object)
+{
+  yr_set_integer(
+      SECTOR_NUMBER_MAXREGSECT, module_object, "SECTOR_NUMBER_MAXREGSECT");
+  yr_set_integer(SECTOR_NUMBER_DIFSECT, module_object, "SECTOR_NUMBER_DIFSECT");
+  yr_set_integer(SECTOR_NUMBER_FATSECT, module_object, "SECTOR_NUMBER_FATSECT");
+  yr_set_integer(
+      SECTOR_NUMBER_ENDOFCHAIN, module_object, "SECTOR_NUMBER_ENDOFCHAIN");
+  yr_set_integer(
+      SECTOR_NUMBER_FREESECT, module_object, "SECTOR_NUMBER_FREESECT");
+  yr_set_integer(HEADER_SIGNATURE, module_object, "HEADER_SIGNATURE");
   yr_set_integer(VERSION_MINOR, module_object, "VERSION_MINOR");
   yr_set_integer(VERSION_MAJOR_3, module_object, "VERSION_MAJOR_3");
   yr_set_integer(VERSION_MAJOR_4, module_object, "VERSION_MAJOR_4");
@@ -162,34 +275,78 @@ void set_constants(YR_OBJECT* module_object){
       "NUMBER_OF_DIRECTORY_SECTORS_VERSION_3");
   yr_set_integer(
       MINI_STREAM_CUTOFF_SIZE, module_object, "MINI_STREAM_CUTOFF_SIZE");
+  yr_set_integer(
+      MINI_STREAM_CUTOFF_SIZE, module_object, "MINI_STREAM_CUTOFF_SIZE");
+  yr_set_integer(
+      STREAM_NUMBER_MAXREGSID, module_object, "STREAM_NUMBER_MAXREGSID");
+  yr_set_integer(
+      STREAM_NUMBER_NOSTREAM, module_object, "STREAM_NUMBER_NOSTREAM");
+  yr_set_integer(OBJECT_TYPE_UNKNOWN, module_object, "OBJECT_TYPE_UNKNOWN");
+  yr_set_integer(
+      OBJECT_TYPE_UNALLOCATED, module_object, "OBJECT_TYPE_UNALLOCATED");
+  yr_set_integer(OBJECT_TYPE_STORAGE, module_object, "OBJECT_TYPE_STORAGE");
+  yr_set_integer(OBJECT_TYPE_STREAM, module_object, "OBJECT_TYPE_STREAM");
+  yr_set_integer(
+      OBJECT_TYPE_ROOT_STORAGE, module_object, "OBJECT_TYPE_ROOT_STORAGE");
+  yr_set_integer(COLOR_FLAG_RED, module_object, "COLOR_FLAG_RED");
+  yr_set_integer(COLOR_FLAG_BLACK, module_object, "COLOR_FLAG_BLACK");
+  yr_set_integer(
+      MAX_STREAM_SIZE_VERSION_3, module_object, "MAX_STREAM_SIZE_VERSION_3");
 }
 
 void set_file_header(YR_OBJECT* module_object, PCOMPOUND_FILE_HEADER pHeader)
 {
+  yr_set_integer(pHeader->signature, module_object, "header.signature");
+  yr_set_integer(pHeader->clsid.Data1, module_object, "header.clsid.data1");
+  yr_set_integer(pHeader->clsid.Data2, module_object, "header.clsid.data2");
+  yr_set_integer(pHeader->clsid.Data3, module_object, "header.clsid.data3");
+  yr_set_integer(pHeader->clsid.Data4, module_object, "header.clsid.data4");
+  yr_set_integer(pHeader->version_minor, module_object, "header.version_minor");
+  yr_set_integer(pHeader->version_major, module_object, "header.version_major");
+  yr_set_integer(pHeader->byte_order, module_object, "header.byte_order");
+  yr_set_integer(pHeader->sector_shift, module_object, "header.sector_shift");
   yr_set_integer(
-      pHeader->header_clsid.Data1,
-      module_object,
-      "compound_file_header.header_clsid.data1");
+      pHeader->mini_sector_shift, module_object, "header.mini_sector_shift");
   yr_set_integer(
-      pHeader->header_clsid.Data2,
+      *((ULONGLONG*) pHeader->reserved) >> 16,
       module_object,
-      "compound_file_header.header_clsid.data2");
+      "header.reserved");
   yr_set_integer(
-      pHeader->header_clsid.Data3,
+      pHeader->number_of_directory_sectors,
       module_object,
-      "compound_file_header.header_clsid.data3");
+      "header.number_of_directory_sectors");
   yr_set_integer(
-      pHeader->header_clsid.Data4,
+      pHeader->number_of_fat_sectors,
       module_object,
-      "compound_file_header.header_clsid.data4");
+      "header.number_of_fat_sectors");
   yr_set_integer(
-      pHeader->version_minor,
+      pHeader->first_directory_sector_location,
       module_object,
-      "compound_file_header.version_minor");
+      "header.first_directory_sector_location");
   yr_set_integer(
-      pHeader->version_major,
+      pHeader->transaction_signature,
       module_object,
-      "compound_file_header.version_major");
+      "header.transaction_signature");
+  yr_set_integer(
+      pHeader->mini_stream_cutoff_size,
+      module_object,
+      "header.mini_stream_cutoff_size");
+  yr_set_integer(
+      pHeader->first_mini_fat_sector_location,
+      module_object,
+      "header.first_mini_fat_sector_location");
+  yr_set_integer(
+      pHeader->number_of_mini_fat_sectors,
+      module_object,
+      "header.number_of_mini_fat_sectors");
+  yr_set_integer(
+      pHeader->first_difat_sector_location,
+      module_object,
+      "header.first_difat_sector_location");
+  yr_set_integer(
+      pHeader->number_of_difat_sectors,
+      module_object,
+      "header.number_of_difat_sectors");
 }
 
 bool is_valid_header(PCOMPOUND_FILE_HEADER pHeader)
@@ -197,11 +354,11 @@ bool is_valid_header(PCOMPOUND_FILE_HEADER pHeader)
   return
       // Identification signature for the compound file structure, and MUST be
       // set to the HEADER_SIGNATURE value.
-      pHeader->header_signature == HEADER_SIGNATURE &&
+      pHeader->signature == HEADER_SIGNATURE &&
 
       // Reserved and unused class ID that MUST be set to all zeroes
       // (CLSID_NULL).
-      IsEqualGUID(pHeader->header_clsid, CLSID_NULL) &&
+      IsEqualGUID(pHeader->clsid, CLSID_NULL) &&
 
       // Version number for nonbreaking changes SHOULD be set to VERSION_MINOR
       // if the major version field is either VERSION_MAJOR_3 or
