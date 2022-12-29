@@ -15,17 +15,16 @@ typedef uint64_t ULONGLONG;
 // https://learn.microsoft.com/en-us/windows/win32/api/guiddef/ns-guiddef-guid
 typedef struct _GUID
 {
-  unsigned long Data1;
-  unsigned short Data2;
-  unsigned short Data3;
-  unsigned char Data4[8];
+  DWORD Data1;
+  WORD Data2;
+  WORD Data3;
+  ULONGLONG Data4;
 } GUID, *PGUID;
 
-bool NullGuid(PGUID pGuid)
-{
-  return pGuid != NULL && pGuid->Data1 == 0 && pGuid->Data2 == 0 &&
-         pGuid->Data3 == 0 && (ULONGLONG) pGuid->Data4 == 0;
-}
+// https://learn.microsoft.com/en-us/windows/win32/api/guiddef/nf-guiddef-isequalguid
+#define IsEqualGUID(rguid1, rguid2)                                \
+  (rguid1.Data1 == rguid2.Data1 && rguid1.Data2 == rguid2.Data2 && \
+   rguid1.Data3 == rguid2.Data3 && rguid1.Data4 == rguid2.Data4)
 
 // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/9d33df18-7aee-4065-9121-4eabe41c29d4
 #define MAXREGSECT 0xFFFFFFFA
@@ -61,11 +60,12 @@ typedef struct _COMPOUND_FILE_HEADER
 
 #define HEADER_SIGNATURE 0xE11AB1A1E011CFD0
 
-#define VERSION_3_MINOR 0x003E
-#define VERSION_4_MINOR 0x003E
+const GUID CLSID_NULL = {};
 
-#define VERSION_3_MAJOR 0x0003
-#define VERSION_4_MAJOR 0x0004
+#define VERSION_MINOR 0x003E
+
+#define VERSION_MAJOR_3 0x0003
+#define VERSION_MAJOR_4 0x0004
 
 #define BYTE_ORDER_LITTLE_ENDIAN 0xFFFE
 
@@ -120,7 +120,38 @@ int module_load(
 
     ole = (PCOMPOUND_FILE_HEADER) block_data;
 
-    if (yr_le64toh(ole->header_signature) != HEADER_SIGNATURE)
+    if (ole->header_signature != HEADER_SIGNATURE)
+      continue;
+
+    if (!IsEqualGUID(ole->header_clsid, CLSID_NULL))
+      continue;
+
+    if (ole->version_minor != VERSION_MINOR ||
+        (ole->version_major != VERSION_MAJOR_3 &&
+         ole->version_major != VERSION_MAJOR_4))
+      continue;
+
+    if (ole->byte_order != BYTE_ORDER_LITTLE_ENDIAN)
+      continue;
+
+    if ((ole->version_major == VERSION_MAJOR_3 &&
+         ole->sector_shift != SECTOR_SHIFT_VERSION_3) ||
+        (ole->version_major == VERSION_MAJOR_4 &&
+         ole->sector_shift != SECTOR_SHIFT_VERSION_4))
+      continue;
+
+    if (ole->mini_sector_shift != MINI_SECTOR_SHIFT)
+      continue;
+
+    if (ole->reserved[0] || ole->reserved[1] || ole->reserved[2] ||
+        ole->reserved[3] || ole->reserved[4] || ole->reserved[5])
+      continue;
+
+    if (ole->version_major == VERSION_MAJOR_3 &&
+        ole->number_of_directory_sectors != 0)
+      continue;
+
+    if (ole->mini_stream_cutoff_size != MINI_STREAM_CUTOFF_SIZE)
       continue;
 
     yr_set_integer(1, module_object, "is_ole");
