@@ -1,3 +1,5 @@
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "EmptyDeclOrStmt"
 #include <yara/endian.h>
 #include <yara/modules.h>
 
@@ -54,8 +56,6 @@ typedef struct _COMPOUND_FILE_HEADER
   DWORD first_difat_sector_location;
   DWORD number_of_difat_sectors;
   ULONG difat[109];
-  DWORD unused_5;
-  DWORD unused_6;
 } COMPOUND_FILE_HEADER, *PCOMPOUND_FILE_HEADER;
 
 #define HEADER_SIGNATURE 0xE11AB1A1E011CFD0
@@ -277,3 +277,5 @@ int module_unload(YR_OBJECT* module_object)
 {
   return ERROR_SUCCESS;
 }
+
+#pragma clang diagnostic pop
