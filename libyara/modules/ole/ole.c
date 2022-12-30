@@ -6,28 +6,31 @@
 #define MODULE_NAME ole
 
 /**
- * Windows types and macros
+ * Related types and macros
+ * https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/88486fe1-45c8-417a-bc85-bb84bf3c6983
  */
 
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/d7edc080-e499-4219-a837-1bc40b64bb04
 typedef uint8_t BYTE;
-typedef uint16_t WORD;
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/f8573df3-a44a-4a50-b070-ac4c3aa78e3c
+typedef uint16_t USHORT;
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/7df7c1d5-492c-4db4-a992-5cd9e887c5d7
 typedef uint16_t WCHAR;
-typedef int16_t SHORT;
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/262627d8-3418-4627-9218-4ffe110850b2
 typedef uint32_t DWORD;
-typedef int32_t LONG;
-typedef uint32_t ULONG;
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/c57d9fba-12ef-4853-b0d5-a6f472b50388
 typedef uint64_t ULONGLONG;
 
-// https://learn.microsoft.com/en-us/windows/win32/api/guiddef/ns-guiddef-guid
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/49e490b8-f972-45d6-a3a4-99f924998d97
 typedef struct _GUID
 {
   DWORD Data1;
-  WORD Data2;
-  WORD Data3;
+  USHORT Data2;
+  USHORT Data3;
   ULONGLONG Data4;
-} GUID, *PGUID;
+} GUID, UUID, *PGUID;
 
-// https://learn.microsoft.com/en-us/windows/win32/api/minwinbase/ns-minwinbase-filetime
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/2c57429b-fdd4-488f-b5fc-9e4cf020fcdf
 typedef struct _FILETIME
 {
   DWORD dwLowDateTime;
@@ -40,7 +43,8 @@ typedef struct _FILETIME
    (rguid1).Data3 == (rguid2).Data3 && (rguid1).Data4 == (rguid2).Data4)
 
 /**
- * Compound File Binary File Format types and macros
+ * Structures
+ * https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/28488197-8193-49d7-84d8-dfd692418ccd
  */
 
 // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/9d33df18-7aee-4065-9121-4eabe41c29d4
@@ -55,11 +59,11 @@ typedef struct _COMPOUND_FILE_HEADER
 {
   ULONGLONG signature;
   GUID clsid;
-  WORD version_minor;
-  WORD version_major;
-  WORD byte_order;
-  WORD sector_shift;
-  WORD mini_sector_shift;
+  USHORT version_minor;
+  USHORT version_major;
+  USHORT byte_order;
+  USHORT sector_shift;
+  USHORT mini_sector_shift;
   BYTE reserved[6];
   DWORD number_of_directory_sectors;
   DWORD number_of_fat_sectors;
@@ -70,7 +74,7 @@ typedef struct _COMPOUND_FILE_HEADER
   DWORD number_of_mini_fat_sectors;
   DWORD first_difat_sector_location;
   DWORD number_of_difat_sectors;
-  ULONG difat[109];
+  DWORD difat[109];
 } COMPOUND_FILE_HEADER, *PCOMPOUND_FILE_HEADER;
 
 #define HEADER_SIGNATURE \
@@ -131,7 +135,7 @@ typedef struct _DIFAT_SECTOR_4
 typedef struct _DIRECTORY_ENTRY
 {
   WCHAR name[32];
-  WORD name_length;
+  USHORT name_length;
   BYTE object_type;
   BYTE color_flag;
   DWORD left_sibling_id;
@@ -157,7 +161,7 @@ typedef struct _DIRECTORY_ENTRY
 #define MAX_STREAM_SIZE_VERSION_3 0x80000000
 
 /**
- * Declarations
+ * Yara Declarations
  */
 
 begin_declarations
@@ -205,10 +209,41 @@ begin_declarations
   declare_integer("MAX_STREAM_SIZE_VERSION_3");
 
   // Header
-  begin_struct("header")
+  declare_integer("signature");  // uint64_t to int64_t
+  begin_struct("clsid")
     ;
-    // Don't expose the signature as uint64_t is not properly supported Yara
-    // declare_integer("signature");
+    declare_integer("data1");
+    declare_integer("data2");
+    declare_integer("data3");
+    declare_integer("data4");
+  end_struct("clsid");
+  declare_integer("version_minor");
+  declare_integer("version_major");
+  declare_integer("byte_order");
+  declare_integer("sector_shift");
+  declare_integer("mini_sector_shift");
+  declare_integer("reserved");
+  declare_integer("number_of_directory_sectors");
+  declare_integer("number_of_fat_sectors");
+  declare_integer("first_directory_sector_location");
+  declare_integer("transaction_signature");
+  declare_integer("mini_stream_cutoff_size");
+  declare_integer("first_mini_fat_sector_location");
+  declare_integer("number_of_mini_fat_sectors");
+  declare_integer("first_difat_sector_location");
+  declare_integer("number_of_difat_sectors");
+
+  declare_integer_array("difat");
+
+  begin_struct_array("directories")
+    ;
+    declare_string("name");
+    declare_integer("name_length");
+    declare_integer("object_type");
+    declare_integer("color_flag");
+    declare_integer("left_sibling_id");
+    declare_integer("right_sibling_id");
+    declare_integer("child_id");
     begin_struct("clsid")
       ;
       declare_integer("data1");
@@ -216,23 +251,20 @@ begin_declarations
       declare_integer("data3");
       declare_integer("data4");
     end_struct("clsid");
-    declare_integer("version_minor");
-    declare_integer("version_major");
-    declare_integer("byte_order");
-    declare_integer("sector_shift");
-    declare_integer("mini_sector_shift");
-    declare_integer("reserved");
-    declare_integer("number_of_directory_sectors");
-    declare_integer("number_of_fat_sectors");
-    declare_integer("first_directory_sector_location");
-    declare_integer("transaction_signature");
-    declare_integer("mini_stream_cutoff_size");
-    declare_integer("first_mini_fat_sector_location");
-    declare_integer("number_of_mini_fat_sectors");
-    declare_integer("first_difat_sector_location");
-    declare_integer("number_of_difat_sectors");
-    // @TODO: Difat appart?
-  end_struct("header");
+    declare_integer("state_bits");
+    begin_struct("creation_time")
+      ;
+      declare_integer("low");
+      declare_integer("high");
+    end_struct("creation_time");
+    begin_struct("modified_time")
+      ;
+      declare_integer("low");
+      declare_integer("high");
+    end_struct("modified_time");
+    declare_integer("starting_sector_location");
+    declare_integer("stream_size");  // uint64_t to int64_t
+  end_struct("directories");
 
 end_declarations
 
@@ -295,72 +327,6 @@ void set_constants(YR_OBJECT* module_object)
       MAX_STREAM_SIZE_VERSION_3, module_object, "MAX_STREAM_SIZE_VERSION_3");
 }
 
-void set_file_header(YR_OBJECT* module_object, PCOMPOUND_FILE_HEADER pHeader)
-{
-  // Don't expose the signature as uint64_t is not properly supported Yara
-  // yr_set_integer(pHeader->signature, module_object, "header.signature");
-  yr_set_integer(
-      yr_le32toh(pHeader->clsid.Data1), module_object, "header.clsid.data1");
-  yr_set_integer(
-      yr_le16toh(pHeader->clsid.Data2), module_object, "header.clsid.data2");
-  yr_set_integer(
-      yr_le16toh(pHeader->clsid.Data3), module_object, "header.clsid.data3");
-  yr_set_integer(
-      yr_le64toh(pHeader->clsid.Data4), module_object, "header.clsid.data4");
-  yr_set_integer(
-      yr_le16toh(pHeader->version_minor),
-      module_object,
-      "header.version_minor");
-  yr_set_integer(
-      yr_le16toh(pHeader->version_major),
-      module_object,
-      "header.version_major");
-  yr_set_integer(
-      yr_le16toh(pHeader->byte_order), module_object, "header.byte_order");
-  yr_set_integer(
-      yr_le16toh(pHeader->sector_shift), module_object, "header.sector_shift");
-  yr_set_integer(
-      yr_le16toh(pHeader->mini_sector_shift),
-      module_object,
-      "header.mini_sector_shift");
-  yr_set_integer(
-      yr_le32toh(pHeader->number_of_directory_sectors),
-      module_object,
-      "header.number_of_directory_sectors");
-  yr_set_integer(
-      yr_le32toh(pHeader->number_of_fat_sectors),
-      module_object,
-      "header.number_of_fat_sectors");
-  yr_set_integer(
-      yr_le32toh(pHeader->first_directory_sector_location),
-      module_object,
-      "header.first_directory_sector_location");
-  yr_set_integer(
-      yr_le32toh(pHeader->transaction_signature),
-      module_object,
-      "header.transaction_signature");
-  yr_set_integer(
-      yr_le32toh(pHeader->mini_stream_cutoff_size),
-      module_object,
-      "header.mini_stream_cutoff_size");
-  yr_set_integer(
-      yr_le32toh(pHeader->first_mini_fat_sector_location),
-      module_object,
-      "header.first_mini_fat_sector_location");
-  yr_set_integer(
-      yr_le32toh(pHeader->number_of_mini_fat_sectors),
-      module_object,
-      "header.number_of_mini_fat_sectors");
-  yr_set_integer(
-      yr_le32toh(pHeader->first_difat_sector_location),
-      module_object,
-      "header.first_difat_sector_location");
-  yr_set_integer(
-      yr_le32toh(pHeader->number_of_difat_sectors),
-      module_object,
-      "header.number_of_difat_sectors");
-}
-
 bool is_valid_header(PCOMPOUND_FILE_HEADER pHeader)
 {
   return
@@ -405,6 +371,82 @@ bool is_valid_header(PCOMPOUND_FILE_HEADER pHeader)
       yr_le32toh(pHeader->mini_stream_cutoff_size) == MINI_STREAM_CUTOFF_SIZE;
 }
 
+void parse_difat(
+    YR_OBJECT* module_object,
+    PCOMPOUND_FILE_HEADER pHeader,
+    DWORD dwDifatSectorNumber);
+
+void parse_fat(
+    YR_OBJECT* module_object,
+    PCOMPOUND_FILE_HEADER pHeader,
+    DWORD dwFatSectorNumber);
+
+bool parse_header(YR_OBJECT* module_object, PCOMPOUND_FILE_HEADER pHeader)
+{
+  // only parse the header if it is valid
+  if (!is_valid_header(pHeader))
+    return false;
+
+  yr_set_integer(yr_le64toh(pHeader->signature), module_object, "signature");
+  yr_set_integer(
+      yr_le32toh(pHeader->clsid.Data1), module_object, "clsid.data1");
+  yr_set_integer(
+      yr_le16toh(pHeader->clsid.Data2), module_object, "clsid.data2");
+  yr_set_integer(
+      yr_le16toh(pHeader->clsid.Data3), module_object, "clsid.data3");
+  yr_set_integer(
+      yr_le64toh(pHeader->clsid.Data4), module_object, "clsid.data4");
+  yr_set_integer(
+      yr_le16toh(pHeader->version_minor), module_object, "version_minor");
+  yr_set_integer(
+      yr_le16toh(pHeader->version_major), module_object, "version_major");
+  yr_set_integer(yr_le16toh(pHeader->byte_order), module_object, "byte_order");
+  yr_set_integer(
+      yr_le16toh(pHeader->sector_shift), module_object, "sector_shift");
+  yr_set_integer(
+      yr_le16toh(pHeader->mini_sector_shift),
+      module_object,
+      "mini_sector_shift");
+  yr_set_integer(
+      yr_le32toh(pHeader->number_of_directory_sectors),
+      module_object,
+      "number_of_directory_sectors");
+  yr_set_integer(
+      yr_le32toh(pHeader->number_of_fat_sectors),
+      module_object,
+      "number_of_fat_sectors");
+  yr_set_integer(
+      yr_le32toh(pHeader->first_directory_sector_location),
+      module_object,
+      "first_directory_sector_location");
+  yr_set_integer(
+      yr_le32toh(pHeader->transaction_signature),
+      module_object,
+      "transaction_signature");
+  yr_set_integer(
+      yr_le32toh(pHeader->mini_stream_cutoff_size),
+      module_object,
+      "mini_stream_cutoff_size");
+  yr_set_integer(
+      yr_le32toh(pHeader->first_mini_fat_sector_location),
+      module_object,
+      "first_mini_fat_sector_location");
+  yr_set_integer(
+      yr_le32toh(pHeader->number_of_mini_fat_sectors),
+      module_object,
+      "number_of_mini_fat_sectors");
+  yr_set_integer(
+      yr_le32toh(pHeader->first_difat_sector_location),
+      module_object,
+      "first_difat_sector_location");
+  yr_set_integer(
+      yr_le32toh(pHeader->number_of_difat_sectors),
+      module_object,
+      "number_of_difat_sectors");
+
+  return true;
+}
+
 int module_load(
     YR_SCAN_CONTEXT* context,
     YR_OBJECT* module_object,
@@ -414,29 +456,19 @@ int module_load(
   YR_MEMORY_BLOCK* block;
   YR_MEMORY_BLOCK_ITERATOR* iterator = context->iterator;
 
-  const uint8_t* block_data = NULL;
-  COMPOUND_FILE_HEADER* pHeader = NULL;
-
-  yr_set_integer(0, module_object, "is_ole");
   set_constants(module_object);
 
   foreach_memory_block(iterator, block)
   {
-    block_data = block->fetch_data(block);
+    PCOMPOUND_FILE_HEADER pHeader = (PCOMPOUND_FILE_HEADER) block->fetch_data(
+        block);
 
-    // Cast to COMPOUND_FILE_HEADER.
-    if (block_data == NULL || block->size < sizeof(COMPOUND_FILE_HEADER))
-      continue;
-
-    pHeader = (PCOMPOUND_FILE_HEADER) block_data;
-    set_file_header(module_object, pHeader);
-
-    if (!is_valid_header(pHeader))
-      continue;
-
-    yr_set_integer(1, module_object, "is_ole");
-
-    break;
+    if (pHeader != NULL || block->size > sizeof(COMPOUND_FILE_HEADER))
+    {
+      yr_set_integer(
+          parse_header(module_object, pHeader), module_object, "is_ole");
+      break;
+    }
   }
 
   return ERROR_SUCCESS;
