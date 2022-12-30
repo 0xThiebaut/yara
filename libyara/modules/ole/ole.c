@@ -16,7 +16,6 @@ typedef int16_t SHORT;
 typedef uint32_t DWORD;
 typedef int32_t LONG;
 typedef uint32_t ULONG;
-typedef int64_t LONGLONG;
 typedef uint64_t ULONGLONG;
 
 // https://learn.microsoft.com/en-us/windows/win32/api/guiddef/ns-guiddef-guid
@@ -36,9 +35,9 @@ typedef struct _FILETIME
 } FILETIME, *PFILETIME, *LPFILETIME;
 
 // https://learn.microsoft.com/en-us/windows/win32/api/guiddef/nf-guiddef-isequalguid
-#define IsEqualGUID(rguid1, rguid2)                                \
-  (rguid1.Data1 == rguid2.Data1 && rguid1.Data2 == rguid2.Data2 && \
-   rguid1.Data3 == rguid2.Data3 && rguid1.Data4 == rguid2.Data4)
+#define IsEqualGUID(rguid1, rguid2)                                        \
+  ((rguid1).Data1 == (rguid2).Data1 && (rguid1).Data2 == (rguid2).Data2 && \
+   (rguid1).Data3 == (rguid2).Data3 && (rguid1).Data4 == (rguid2).Data4)
 
 /**
  * Compound File Binary File Format types and macros
@@ -74,7 +73,8 @@ typedef struct _COMPOUND_FILE_HEADER
   ULONG difat[109];
 } COMPOUND_FILE_HEADER, *PCOMPOUND_FILE_HEADER;
 
-#define HEADER_SIGNATURE 0xE11AB1A1E011CFD0
+#define HEADER_SIGNATURE \
+  0xE11AB1A1E011CFD0  // 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1
 
 const GUID CLSID_NULL = {};
 
@@ -207,7 +207,8 @@ begin_declarations
   // Header
   begin_struct("header")
     ;
-    declare_integer("signature");
+    // Don't expose the signature as uint64_t is not properly supported Yara
+    // declare_integer("signature");
     begin_struct("clsid")
       ;
       declare_integer("data1");
@@ -296,55 +297,66 @@ void set_constants(YR_OBJECT* module_object)
 
 void set_file_header(YR_OBJECT* module_object, PCOMPOUND_FILE_HEADER pHeader)
 {
-  yr_set_integer(pHeader->signature, module_object, "header.signature");
-  yr_set_integer(pHeader->clsid.Data1, module_object, "header.clsid.data1");
-  yr_set_integer(pHeader->clsid.Data2, module_object, "header.clsid.data2");
-  yr_set_integer(pHeader->clsid.Data3, module_object, "header.clsid.data3");
-  yr_set_integer(pHeader->clsid.Data4, module_object, "header.clsid.data4");
-  yr_set_integer(pHeader->version_minor, module_object, "header.version_minor");
-  yr_set_integer(pHeader->version_major, module_object, "header.version_major");
-  yr_set_integer(pHeader->byte_order, module_object, "header.byte_order");
-  yr_set_integer(pHeader->sector_shift, module_object, "header.sector_shift");
+  // Don't expose the signature as uint64_t is not properly supported Yara
+  // yr_set_integer(pHeader->signature, module_object, "header.signature");
   yr_set_integer(
-      pHeader->mini_sector_shift, module_object, "header.mini_sector_shift");
+      yr_le32toh(pHeader->clsid.Data1), module_object, "header.clsid.data1");
   yr_set_integer(
-      *((ULONGLONG*) pHeader->reserved) >> 16,
+      yr_le16toh(pHeader->clsid.Data2), module_object, "header.clsid.data2");
+  yr_set_integer(
+      yr_le16toh(pHeader->clsid.Data3), module_object, "header.clsid.data3");
+  yr_set_integer(
+      yr_le64toh(pHeader->clsid.Data4), module_object, "header.clsid.data4");
+  yr_set_integer(
+      yr_le16toh(pHeader->version_minor),
       module_object,
-      "header.reserved");
+      "header.version_minor");
   yr_set_integer(
-      pHeader->number_of_directory_sectors,
+      yr_le16toh(pHeader->version_major),
+      module_object,
+      "header.version_major");
+  yr_set_integer(
+      yr_le16toh(pHeader->byte_order), module_object, "header.byte_order");
+  yr_set_integer(
+      yr_le16toh(pHeader->sector_shift), module_object, "header.sector_shift");
+  yr_set_integer(
+      yr_le16toh(pHeader->mini_sector_shift),
+      module_object,
+      "header.mini_sector_shift");
+  yr_set_integer(
+      yr_le32toh(pHeader->number_of_directory_sectors),
       module_object,
       "header.number_of_directory_sectors");
   yr_set_integer(
-      pHeader->number_of_fat_sectors,
+      yr_le32toh(pHeader->number_of_fat_sectors),
       module_object,
       "header.number_of_fat_sectors");
   yr_set_integer(
-      pHeader->first_directory_sector_location,
+      yr_le32toh(pHeader->first_directory_sector_location),
       module_object,
       "header.first_directory_sector_location");
   yr_set_integer(
-      pHeader->transaction_signature,
+      yr_le32toh(pHeader->transaction_signature),
       module_object,
       "header.transaction_signature");
   yr_set_integer(
-      pHeader->mini_stream_cutoff_size,
+      yr_le32toh(pHeader->mini_stream_cutoff_size),
       module_object,
       "header.mini_stream_cutoff_size");
   yr_set_integer(
-      pHeader->first_mini_fat_sector_location,
+      yr_le32toh(pHeader->first_mini_fat_sector_location),
       module_object,
       "header.first_mini_fat_sector_location");
   yr_set_integer(
-      pHeader->number_of_mini_fat_sectors,
+      yr_le32toh(pHeader->number_of_mini_fat_sectors),
       module_object,
       "header.number_of_mini_fat_sectors");
   yr_set_integer(
-      pHeader->first_difat_sector_location,
+      yr_le32toh(pHeader->first_difat_sector_location),
       module_object,
       "header.first_difat_sector_location");
   yr_set_integer(
-      pHeader->number_of_difat_sectors,
+      yr_le32toh(pHeader->number_of_difat_sectors),
       module_object,
       "header.number_of_difat_sectors");
 }
@@ -354,7 +366,7 @@ bool is_valid_header(PCOMPOUND_FILE_HEADER pHeader)
   return
       // Identification signature for the compound file structure, and MUST be
       // set to the HEADER_SIGNATURE value.
-      pHeader->signature == HEADER_SIGNATURE &&
+      yr_le64toh(pHeader->signature) == HEADER_SIGNATURE &&
 
       // Reserved and unused class ID that MUST be set to all zeroes
       // (CLSID_NULL).
@@ -364,33 +376,33 @@ bool is_valid_header(PCOMPOUND_FILE_HEADER pHeader)
       // if the major version field is either VERSION_MAJOR_3 or
       // VERSION_MAJOR_4. Version number for breaking changes MUST be set to
       // either VERSION_MAJOR_3 or VERSION_MAJOR_4.
-      pHeader->version_minor == VERSION_MINOR &&
-      (pHeader->version_major == VERSION_MAJOR_3 ||
-       pHeader->version_major == VERSION_MAJOR_4) &&
+      yr_le16toh(pHeader->version_minor) == VERSION_MINOR &&
+      (yr_le16toh(pHeader->version_major) == VERSION_MAJOR_3 ||
+       yr_le16toh(pHeader->version_major) == VERSION_MAJOR_4) &&
 
       // This field MUST be set to BYTE_ORDER_LITTLE_ENDIAN
-      pHeader->byte_order == BYTE_ORDER_LITTLE_ENDIAN &&
+      yr_le16toh(pHeader->byte_order) == BYTE_ORDER_LITTLE_ENDIAN &&
 
       // This field MUST be set to SECTOR_SHIFT_VERSION_3, or
       // SECTOR_SHIFT_VERSION_4, depending on the Major Version field.
-      ((pHeader->version_major == VERSION_MAJOR_3 &&
-        pHeader->sector_shift == SECTOR_SHIFT_VERSION_3) ||
-       (pHeader->version_major == VERSION_MAJOR_4 &&
-        pHeader->sector_shift == SECTOR_SHIFT_VERSION_4)) &&
+      ((yr_le16toh(pHeader->version_major) == VERSION_MAJOR_3 &&
+        yr_le16toh(pHeader->sector_shift) == SECTOR_SHIFT_VERSION_3) ||
+       (yr_le16toh(pHeader->version_major) == VERSION_MAJOR_4 &&
+        yr_le16toh(pHeader->sector_shift) == SECTOR_SHIFT_VERSION_4)) &&
 
       // This field MUST be set to MINI_SECTOR_SHIFT.
-      pHeader->mini_sector_shift == MINI_SECTOR_SHIFT &&
+      yr_le16toh(pHeader->mini_sector_shift) == MINI_SECTOR_SHIFT &&
 
       // This field MUST be set to all zeroes.
       !pHeader->reserved[0] && !pHeader->reserved[1] && !pHeader->reserved[2] &&
       !pHeader->reserved[3] && !pHeader->reserved[4] && !pHeader->reserved[5] &&
 
       // If Major Version is 3, the Number of Directory Sectors MUST be zero.
-      (pHeader->version_major != VERSION_MAJOR_3 ||
-       pHeader->number_of_directory_sectors == 0) &&
+      (yr_le16toh(pHeader->version_major) != VERSION_MAJOR_3 ||
+       yr_le32toh(pHeader->number_of_directory_sectors) == 0) &&
 
       // This integer field MUST be set to MINI_STREAM_CUTOFF_SIZE.
-      pHeader->mini_stream_cutoff_size == MINI_STREAM_CUTOFF_SIZE;
+      yr_le32toh(pHeader->mini_stream_cutoff_size) == MINI_STREAM_CUTOFF_SIZE;
 }
 
 int module_load(
