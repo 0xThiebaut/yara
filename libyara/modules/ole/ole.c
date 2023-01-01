@@ -484,6 +484,9 @@ int module_load(
     }
 
     // Walk difat sectors
+    // TODO: Store DIFAT locations as well to detect malformations for example:
+    //  ole.difat_locations[ole.number_of_difat_sectors-1] !=
+    //  ole.SECTOR_NUMBER_ENDOFCHAIN
     DWORD dwDifatLocation = yr_le32toh(pHeader->first_difat_sector_location);
     DWORD dwSectorSize = 1 << yr_le16toh(pHeader->sector_shift);
     DWORD dwDifatLength = (dwSectorSize / sizeof(DWORD)) - 1;
