@@ -266,6 +266,8 @@ begin_declarations
     declare_integer("stream_size");  // uint64_t to int64_t
   end_struct("directories");
 
+  declare_integer_array("test");
+
 end_declarations
 
 int module_initialize(YR_MODULE* module)
@@ -280,6 +282,8 @@ int module_finalize(YR_MODULE* module)
 
 void set_constants(YR_OBJECT* module_object)
 {
+  yr_set_integer(0, module_object, "is_ole");
+
   yr_set_integer(
       SECTOR_NUMBER_MAXREGSECT, module_object, "SECTOR_NUMBER_MAXREGSECT");
   yr_set_integer(SECTOR_NUMBER_DIFSECT, module_object, "SECTOR_NUMBER_DIFSECT");
@@ -387,6 +391,8 @@ bool parse_header(YR_OBJECT* module_object, PCOMPOUND_FILE_HEADER pHeader)
   if (!is_valid_header(pHeader))
     return false;
 
+  yr_set_integer(1, module_object, "is_ole");
+
   yr_set_integer(yr_le64toh(pHeader->signature), module_object, "signature");
   yr_set_integer(
       yr_le32toh(pHeader->clsid.Data1), module_object, "clsid.data1");
@@ -455,19 +461,56 @@ int module_load(
 {
   YR_MEMORY_BLOCK* block;
   YR_MEMORY_BLOCK_ITERATOR* iterator = context->iterator;
+  PCOMPOUND_FILE_HEADER pHeader;
 
   set_constants(module_object);
 
   foreach_memory_block(iterator, block)
   {
-    PCOMPOUND_FILE_HEADER pHeader = (PCOMPOUND_FILE_HEADER) block->fetch_data(
-        block);
+    pHeader = (PCOMPOUND_FILE_HEADER) block->fetch_data(block);
 
-    if (pHeader != NULL || block->size > sizeof(COMPOUND_FILE_HEADER))
+    if (pHeader == NULL || block->size < sizeof(COMPOUND_FILE_HEADER) ||
+        !is_valid_header(pHeader))
+      continue;
+
+    parse_header(module_object, pHeader);
+
+    // Walk header difat
+    DWORD dwHeaderDifatLength = sizeof(pHeader->difat) / sizeof(DWORD);
+    for (int i = 0; i < dwHeaderDifatLength; i++)
     {
-      yr_set_integer(
-          parse_header(module_object, pHeader), module_object, "is_ole");
-      break;
+      DWORD dwFatLocation = yr_le32toh(pHeader->difat[i]);
+      yr_set_integer(dwFatLocation, module_object, "difat[%i]", i);
+    }
+
+    // Walk difat sectors
+    DWORD dwDifatLocation = yr_le32toh(pHeader->first_difat_sector_location);
+    DWORD dwSectorSize = 1 << yr_le16toh(pHeader->sector_shift);
+    DWORD dwDifatLength = (dwSectorSize / sizeof(DWORD)) - 1;
+
+    // Only loop number_of_difat_sectors sectors to avoid infinite loops and
+    // ensure the next difat sector is within bounds
+    for (int i = 0; i < yr_le32toh(pHeader->number_of_difat_sectors) &&
+                    dwDifatLocation != SECTOR_NUMBER_ENDOFCHAIN &&
+                    dwSectorSize * (dwDifatLocation + 2) <= block->size;
+         i++)
+    {
+      DWORD* pDifat =
+          (DWORD*) (((BYTE*) pHeader) + dwSectorSize * (dwDifatLocation + 1));
+
+      // Walk the difat sector
+      for (int j = 0; j < dwDifatLength; j++)
+      {
+        DWORD dwFatLocation = yr_le32toh(pDifat[j]);
+        yr_set_integer(
+            dwFatLocation,
+            module_object,
+            "difat[%i]",
+            dwHeaderDifatLength + (dwDifatLength * i) + j);
+      }
+
+      // Define next difat in chain
+      dwDifatLocation = yr_le32toh(pDifat[dwDifatLength]);
     }
   }
 
