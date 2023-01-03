@@ -2,6 +2,7 @@
 #pragma ide diagnostic ignored "EmptyDeclOrStmt"
 #include <yara/endian.h>
 #include <yara/modules.h>
+#include "yara/mem.h"
 
 #define MODULE_NAME ole
 
@@ -279,7 +280,7 @@ int module_finalize(YR_MODULE* module)
   return ERROR_SUCCESS;
 }
 
-void set_constants(YR_OBJECT* module_object)
+void expose_constants(YR_OBJECT* module_object)
 {
   yr_set_integer(0, module_object, "is_ole");
 
@@ -330,6 +331,18 @@ void set_constants(YR_OBJECT* module_object)
       MAX_STREAM_SIZE_VERSION_3, module_object, "MAX_STREAM_SIZE_VERSION_3");
 }
 
+typedef struct _COMPOUND_FILE
+{
+  PCOMPOUND_FILE_HEADER pHeader;
+  DWORD dwSize;
+  DWORD* pDifatLocations;
+  DWORD dwNumberOfDifatLocations;
+  DWORD* pDifat;
+  DWORD dwNumberOfDifatEntries;
+  DWORD* pFat;
+
+} COMPOUND_FILE, *PCOMPOUND_FILE;
+
 bool is_valid_header(PCOMPOUND_FILE_HEADER pHeader)
 {
   return
@@ -374,23 +387,63 @@ bool is_valid_header(PCOMPOUND_FILE_HEADER pHeader)
       yr_le32toh(pHeader->mini_stream_cutoff_size) == MINI_STREAM_CUTOFF_SIZE;
 }
 
-void parse_difat(
-    YR_OBJECT* module_object,
-    PCOMPOUND_FILE_HEADER pHeader,
-    DWORD dwDifatSectorNumber);
-
-void parse_fat(
-    YR_OBJECT* module_object,
-    PCOMPOUND_FILE_HEADER pHeader,
-    DWORD dwFatSectorNumber);
-
-bool parse_header(YR_OBJECT* module_object, PCOMPOUND_FILE_HEADER pHeader)
+void parse_difat(PCOMPOUND_FILE pOle)
 {
-  // only parse the header if it is valid
-  if (!is_valid_header(pHeader))
-    return false;
+  // Parse the DIFAT
+  DWORD dwHeaderDifatLength = sizeof(pOle->pHeader->difat) / sizeof(DWORD);
+  DWORD dwDifatLocation = yr_le32toh(
+      pOle->pHeader->first_difat_sector_location);
+  DWORD dwNumberOfDifatSectors = yr_le32toh(
+      pOle->pHeader->number_of_difat_sectors);
+  DWORD dwSectorSize = 1 << yr_le16toh(pOle->pHeader->sector_shift);
+  DWORD dwDifatLength = (dwSectorSize / sizeof(DWORD)) - 1;
 
-  yr_set_integer(1, module_object, "is_ole");
+  pOle->dwNumberOfDifatLocations = dwNumberOfDifatSectors + 1;
+  pOle->pDifatLocations = yr_malloc(
+      sizeof(DWORD) * pOle->dwNumberOfDifatLocations);
+
+  pOle->dwNumberOfDifatEntries = dwHeaderDifatLength +
+                                 dwNumberOfDifatSectors * dwDifatLength;
+  pOle->pDifat = yr_malloc(sizeof(DWORD) * pOle->dwNumberOfDifatEntries);
+
+  // Walk header difat
+  for (int i = 0; i < dwHeaderDifatLength; i++)
+  {
+    DWORD dwFatLocation = yr_le32toh(pOle->pHeader->difat[i]);
+    pOle->pDifat[i] = dwFatLocation;
+  }
+
+  // Only loop number_of_difat_sectors sectors to avoid infinite loops and
+  // ensure the next difat sector is within bounds
+  for (int i = 0; i < dwNumberOfDifatSectors &&
+                  dwDifatLocation != SECTOR_NUMBER_ENDOFCHAIN &&
+                  dwSectorSize * (dwDifatLocation + 2) <= pOle->dwSize;
+       i++)
+  {
+    pOle->pDifatLocations[i] = dwDifatLocation;
+
+    DWORD* pDifat =
+        (DWORD*) (((BYTE*) pOle->pHeader) + dwSectorSize * (dwDifatLocation + 1));
+
+    // Walk the difat sector
+    for (int j = 0; j < dwDifatLength; j++)
+    {
+      DWORD dwFatLocation = yr_le32toh(pDifat[j]);
+      pOle->pDifat[dwHeaderDifatLength + (dwDifatLength * i) + j] =
+          dwFatLocation;
+    }
+
+    // Define next difat in chain
+    dwDifatLocation = yr_le32toh(pDifat[dwDifatLength]);
+  }
+
+  pOle->pDifatLocations[dwNumberOfDifatSectors] = dwDifatLocation;
+}
+
+void expose_header(YR_OBJECT* module_object, PCOMPOUND_FILE pOle)
+{
+  PCOMPOUND_FILE_HEADER pHeader = pOle->pHeader;
+  yr_set_integer(is_valid_header(pHeader), module_object, "is_ole");
 
   yr_set_integer(yr_le64toh(pHeader->signature), module_object, "signature");
   yr_set_integer(
@@ -448,8 +501,22 @@ bool parse_header(YR_OBJECT* module_object, PCOMPOUND_FILE_HEADER pHeader)
       yr_le32toh(pHeader->number_of_difat_sectors),
       module_object,
       "number_of_difat_sectors");
+}
 
-  return true;
+void expose_difat(YR_OBJECT* module_object, PCOMPOUND_FILE pOle)
+{
+  for (int i = 0; i < pOle->dwNumberOfDifatLocations; i++)
+  {
+    yr_set_integer(
+        pOle->pDifatLocations[i],
+        module_object,
+        "difat_sector_locations[%i]",
+        i);
+  }
+  for (int i = 0; i < pOle->dwNumberOfDifatEntries; i++)
+  {
+    yr_set_integer(pOle->pDifat[i], module_object, "difat[%i]", i);
+  }
 }
 
 int module_load(
@@ -462,65 +529,32 @@ int module_load(
   YR_MEMORY_BLOCK_ITERATOR* iterator = context->iterator;
   PCOMPOUND_FILE_HEADER pHeader;
 
-  set_constants(module_object);
+  expose_constants(module_object);
 
   foreach_memory_block(iterator, block)
   {
+    // Make sure the header is at least large enough
     pHeader = (PCOMPOUND_FILE_HEADER) block->fetch_data(block);
 
-    if (pHeader == NULL || block->size < sizeof(COMPOUND_FILE_HEADER) ||
-        !is_valid_header(pHeader))
+    if (pHeader == NULL || block->size < sizeof(COMPOUND_FILE_HEADER))
       continue;
 
-    parse_header(module_object, pHeader);
+    // Allocate a compound file
+    PCOMPOUND_FILE pOle = yr_calloc(1, sizeof(COMPOUND_FILE));
+    module_object->data = pOle;
+    pOle->pHeader = pHeader;
+    pOle->dwSize = block->size;
 
-    // Walk header difat
-    DWORD dwHeaderDifatLength = sizeof(pHeader->difat) / sizeof(DWORD);
-    for (int i = 0; i < dwHeaderDifatLength; i++)
+    // Only parse the compound file if the header is valid
+    if (is_valid_header(pHeader))
     {
-      DWORD dwFatLocation = yr_le32toh(pHeader->difat[i]);
-      yr_set_integer(dwFatLocation, module_object, "difat[%i]", i);
+      parse_difat(pOle);
+      expose_difat(module_object, pOle);
     }
 
-    // Walk difat sectors
-    DWORD dwDifatLocation = yr_le32toh(pHeader->first_difat_sector_location);
-    DWORD dwNumberOfDifatSectors = yr_le32toh(pHeader->number_of_difat_sectors);
-    DWORD dwSectorSize = 1 << yr_le16toh(pHeader->sector_shift);
-    DWORD dwDifatLength = (dwSectorSize / sizeof(DWORD)) - 1;
-
-    // Only loop number_of_difat_sectors sectors to avoid infinite loops and
-    // ensure the next difat sector is within bounds
-    for (int i = 0; i < dwNumberOfDifatSectors &&
-                    dwDifatLocation != SECTOR_NUMBER_ENDOFCHAIN &&
-                    dwSectorSize * (dwDifatLocation + 2) <= block->size;
-         i++)
-    {
-      yr_set_integer(
-          dwDifatLocation, module_object, "difat_sector_locations[%i]", i);
-
-      DWORD* pDifat =
-          (DWORD*) (((BYTE*) pHeader) + dwSectorSize * (dwDifatLocation + 1));
-
-      // Walk the difat sector
-      for (int j = 0; j < dwDifatLength; j++)
-      {
-        DWORD dwFatLocation = yr_le32toh(pDifat[j]);
-        yr_set_integer(
-            dwFatLocation,
-            module_object,
-            "difat[%i]",
-            dwHeaderDifatLength + (dwDifatLength * i) + j);
-      }
-
-      // Define next difat in chain
-      dwDifatLocation = yr_le32toh(pDifat[dwDifatLength]);
-    }
-
-    yr_set_integer(
-        dwDifatLocation,
-        module_object,
-        "difat_sector_locations[%i]",
-        dwNumberOfDifatSectors);
+    // Expose the header as it was valid
+    expose_header(module_object, pOle);
+    break;
   }
 
   return ERROR_SUCCESS;
@@ -528,6 +562,15 @@ int module_load(
 
 int module_unload(YR_OBJECT* module_object)
 {
+  PCOMPOUND_FILE pOle = module_object->data;
+  if (pOle != NULL)
+  {
+    if (pOle->pDifat != NULL)
+      yr_free(pOle->pDifat);
+    if (pOle->pDifatLocations != NULL)
+      yr_free(pOle->pDifatLocations);
+  }
+  yr_free(pOle);
   return ERROR_SUCCESS;
 }
 
