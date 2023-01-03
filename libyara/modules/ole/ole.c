@@ -233,6 +233,7 @@ begin_declarations
   declare_integer("first_difat_sector_location");
   declare_integer("number_of_difat_sectors");
 
+  declare_integer_array("difat_sector_locations");
   declare_integer_array("difat");
 
   begin_struct_array("directories")
@@ -265,8 +266,6 @@ begin_declarations
     declare_integer("starting_sector_location");
     declare_integer("stream_size");  // uint64_t to int64_t
   end_struct("directories");
-
-  declare_integer_array("test");
 
 end_declarations
 
@@ -484,20 +483,21 @@ int module_load(
     }
 
     // Walk difat sectors
-    // TODO: Store DIFAT locations as well to detect malformations for example:
-    //  ole.difat_locations[ole.number_of_difat_sectors-1] !=
-    //  ole.SECTOR_NUMBER_ENDOFCHAIN
     DWORD dwDifatLocation = yr_le32toh(pHeader->first_difat_sector_location);
+    DWORD dwNumberOfDifatSectors = yr_le32toh(pHeader->number_of_difat_sectors);
     DWORD dwSectorSize = 1 << yr_le16toh(pHeader->sector_shift);
     DWORD dwDifatLength = (dwSectorSize / sizeof(DWORD)) - 1;
 
     // Only loop number_of_difat_sectors sectors to avoid infinite loops and
     // ensure the next difat sector is within bounds
-    for (int i = 0; i < yr_le32toh(pHeader->number_of_difat_sectors) &&
+    for (int i = 0; i < dwNumberOfDifatSectors &&
                     dwDifatLocation != SECTOR_NUMBER_ENDOFCHAIN &&
                     dwSectorSize * (dwDifatLocation + 2) <= block->size;
          i++)
     {
+      yr_set_integer(
+          dwDifatLocation, module_object, "difat_sector_locations[%i]", i);
+
       DWORD* pDifat =
           (DWORD*) (((BYTE*) pHeader) + dwSectorSize * (dwDifatLocation + 1));
 
@@ -515,6 +515,12 @@ int module_load(
       // Define next difat in chain
       dwDifatLocation = yr_le32toh(pDifat[dwDifatLength]);
     }
+
+    yr_set_integer(
+        dwDifatLocation,
+        module_object,
+        "difat_sector_locations[%i]",
+        dwNumberOfDifatSectors);
   }
 
   return ERROR_SUCCESS;
