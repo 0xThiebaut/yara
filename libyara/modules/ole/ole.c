@@ -1,5 +1,6 @@
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "EmptyDeclOrStmt"
+#include <wchar.h>
 #include <yara/endian.h>
 #include <yara/modules.h>
 #include "yara/mem.h"
@@ -135,7 +136,7 @@ typedef struct _DIFAT_SECTOR_4
 
 typedef struct _DIRECTORY_ENTRY
 {
-  WCHAR name[32];
+  BYTE name[32 * 2];
   USHORT name_length;
   BYTE object_type;
   BYTE color_flag;
@@ -236,6 +237,7 @@ begin_declarations
 
   declare_integer_array("difat_sector_locations");
   declare_integer_array("difat");
+  declare_integer_array("fat");
 
   begin_struct_array("directories")
     ;
@@ -340,6 +342,9 @@ typedef struct _COMPOUND_FILE
   DWORD* pDifat;
   DWORD dwNumberOfDifatEntries;
   DWORD* pFat;
+  DWORD dwNumberOfFatEntries;
+  PDIRECTORY_ENTRY* pDirectories;
+  DWORD dwNumberOfDirectoryEntries;
 
 } COMPOUND_FILE, *PCOMPOUND_FILE;
 
@@ -389,24 +394,22 @@ bool is_valid_header(PCOMPOUND_FILE_HEADER pHeader)
 
 void parse_difat(PCOMPOUND_FILE pOle)
 {
-  // Parse the DIFAT
+  // Compute the header difat and sector difat length
   DWORD dwHeaderDifatLength = sizeof(pOle->pHeader->difat) / sizeof(DWORD);
-  DWORD dwDifatLocation = yr_le32toh(
-      pOle->pHeader->first_difat_sector_location);
+  DWORD dwSectorSize = 1 << yr_le16toh(pOle->pHeader->sector_shift);
+  DWORD dwDifatSectorLength = (dwSectorSize / sizeof(DWORD)) - 1;
+
+  // Allocate the required arrays, including for the ENDOFCHAIN
   DWORD dwNumberOfDifatSectors = yr_le32toh(
       pOle->pHeader->number_of_difat_sectors);
-  DWORD dwSectorSize = 1 << yr_le16toh(pOle->pHeader->sector_shift);
-  DWORD dwDifatLength = (dwSectorSize / sizeof(DWORD)) - 1;
+  DWORD dwNumberOfDifatLocations = dwNumberOfDifatSectors + 1;
+  pOle->pDifatLocations = yr_calloc(dwNumberOfDifatLocations, sizeof(DWORD));
 
-  pOle->dwNumberOfDifatLocations = dwNumberOfDifatSectors + 1;
-  pOle->pDifatLocations = yr_malloc(
-      sizeof(DWORD) * pOle->dwNumberOfDifatLocations);
+  DWORD dwNumberOfDifatEntries = dwHeaderDifatLength +
+                                 dwNumberOfDifatSectors * dwDifatSectorLength;
+  pOle->pDifat = yr_calloc(dwNumberOfDifatEntries, sizeof(DWORD));
 
-  pOle->dwNumberOfDifatEntries = dwHeaderDifatLength +
-                                 dwNumberOfDifatSectors * dwDifatLength;
-  pOle->pDifat = yr_malloc(sizeof(DWORD) * pOle->dwNumberOfDifatEntries);
-
-  // Walk header difat
+  // Walk the header difat
   for (int i = 0; i < dwHeaderDifatLength; i++)
   {
     DWORD dwFatLocation = yr_le32toh(pOle->pHeader->difat[i]);
@@ -415,29 +418,237 @@ void parse_difat(PCOMPOUND_FILE pOle)
 
   // Only loop number_of_difat_sectors sectors to avoid infinite loops and
   // ensure the next difat sector is within bounds
+  DWORD dwDifatLocation = yr_le32toh(
+      pOle->pHeader->first_difat_sector_location);
+
   for (int i = 0; i < dwNumberOfDifatSectors &&
                   dwDifatLocation != SECTOR_NUMBER_ENDOFCHAIN &&
                   dwSectorSize * (dwDifatLocation + 2) <= pOle->dwSize;
        i++)
   {
+    // Update the difat locations
+    pOle->dwNumberOfDifatLocations = i + 1;
     pOle->pDifatLocations[i] = dwDifatLocation;
 
+    // Walk the difat sector
     DWORD* pDifat =
         (DWORD*) (((BYTE*) pOle->pHeader) + dwSectorSize * (dwDifatLocation + 1));
 
-    // Walk the difat sector
-    for (int j = 0; j < dwDifatLength; j++)
+    for (int j = 0; j < dwDifatSectorLength; j++)
     {
       DWORD dwFatLocation = yr_le32toh(pDifat[j]);
-      pOle->pDifat[dwHeaderDifatLength + (dwDifatLength * i) + j] =
+      pOle->pDifat[dwHeaderDifatLength + (dwDifatSectorLength * i) + j] =
           dwFatLocation;
     }
 
     // Define next difat in chain
-    dwDifatLocation = yr_le32toh(pDifat[dwDifatLength]);
+    dwDifatLocation = yr_le32toh(pDifat[dwDifatSectorLength]);
   }
 
-  pOle->pDifatLocations[dwNumberOfDifatSectors] = dwDifatLocation;
+  // Update the number of set difat entries
+  pOle->dwNumberOfDifatEntries = dwHeaderDifatLength +
+                                 pOle->dwNumberOfDifatLocations *
+                                     dwDifatSectorLength;
+
+  // Store the last difat location, which is expected to be an ENDOFCHAIN
+  pOle->pDifatLocations[pOle->dwNumberOfDifatLocations] = dwDifatLocation;
+  pOle->dwNumberOfDifatLocations++;
+}
+
+void parse_fat(PCOMPOUND_FILE pOle)
+{
+  // Compute the fat sector length
+  DWORD dwSectorSize = 1 << yr_le16toh(pOle->pHeader->sector_shift);
+  DWORD dwFatSectorLength = dwSectorSize / sizeof(DWORD);
+
+  // Allocate the required arrays
+  pOle->dwNumberOfFatEntries = 0;
+  for (int i = 0; i < pOle->dwNumberOfDifatEntries &&
+                  pOle->pDifat[i] <= SECTOR_NUMBER_MAXREGSECT;
+       i++)
+    pOle->dwNumberOfFatEntries += dwFatSectorLength;
+  pOle->pFat = yr_calloc(pOle->dwNumberOfFatEntries, sizeof(DWORD));
+
+  // Walk difat
+  for (int i = 0; i < pOle->dwNumberOfDifatEntries &&
+                  pOle->pDifat[i] <= SECTOR_NUMBER_MAXREGSECT &&
+                  dwSectorSize * (pOle->pDifat[i] + 2) <= pOle->dwSize;
+       i++)
+  {
+    // Walk fat
+    DWORD dwFatLocation = pOle->pDifat[i];
+    DWORD* pFat =
+        (DWORD*) (((BYTE*) pOle->pHeader) + dwSectorSize * (dwFatLocation + 1));
+
+    for (int j = 0; j < dwFatSectorLength; j++)
+    {
+      DWORD dwFatEntry = pFat[j];
+      pOle->pFat[dwFatSectorLength * i + j] = dwFatEntry;
+    }
+  }
+}
+
+void parse_directories(PCOMPOUND_FILE pOle)
+{
+  DWORD dwSectorSize = 1 << yr_le16toh(pOle->pHeader->sector_shift);
+  DWORD dwDirectorySectorLength = dwSectorSize / sizeof(DIRECTORY_ENTRY);
+
+  // Number of Directory Sectors; If Major Version is 3, the Number of Directory
+  // Sectors MUST be zero. This field is not supported for version 3 compound
+  // files.
+  bool bIsVersion3 = yr_le32toh(pOle->pHeader->version_major) ==
+                     VERSION_MAJOR_3;
+  DWORD dwNumberOfDirectorySectors =
+      bIsVersion3 ? 0 : yr_le32toh(pOle->pHeader->number_of_directory_sectors);
+  if (bIsVersion3)
+  {
+    for (DWORD dwDirectorySectorLocation =
+             yr_le32toh(pOle->pHeader->first_directory_sector_location);
+         dwNumberOfDirectorySectors <= SECTOR_NUMBER_MAXREGSECT &&
+         dwDirectorySectorLocation <= SECTOR_NUMBER_MAXREGSECT &&
+         dwDirectorySectorLocation < pOle->dwNumberOfFatEntries;
+         dwDirectorySectorLocation = pOle->pFat[dwDirectorySectorLocation])
+    {
+      dwNumberOfDirectorySectors++;
+    }
+  }
+
+
+  pOle->dwNumberOfDirectoryEntries = dwNumberOfDirectorySectors *
+                                     dwDirectorySectorLength;
+  pOle->pDirectories = yr_calloc(
+      pOle->dwNumberOfDirectoryEntries, sizeof(PDIRECTORY_ENTRY));
+
+  // Walk directory sectors
+  DWORD dwDirectorySectorLocation = yr_le32toh(
+      pOle->pHeader->first_directory_sector_location);
+  for (int i = 0;
+       i < dwNumberOfDirectorySectors &&
+       dwDirectorySectorLocation <= SECTOR_NUMBER_MAXREGSECT &&
+       dwSectorSize * (dwDirectorySectorLocation + 2) <= pOle->dwSize;
+       i++)
+  {
+    PDIRECTORY_ENTRY pDirectoryEntries =
+        (PDIRECTORY_ENTRY) (((BYTE*) pOle->pHeader) + dwSectorSize * (dwDirectorySectorLocation + 1));
+
+    // Walk the directory entries
+    for (int j = 0; j < dwDirectorySectorLength; j++)
+    {
+      PDIRECTORY_ENTRY pDirectoryEntry = &pDirectoryEntries[j];
+      pOle->pDirectories[i * dwDirectorySectorLength + j] = pDirectoryEntry;
+    }
+
+    dwDirectorySectorLocation = pOle->pFat[dwDirectorySectorLocation];
+  }
+}
+
+void expose_directories(YR_OBJECT* module_object, PCOMPOUND_FILE pOle)
+{
+  for (int i = 0; i < pOle->dwNumberOfDirectoryEntries; i++)
+  {
+    PDIRECTORY_ENTRY pDirectory = pOle->pDirectories[i];
+    if (pDirectory == NULL)
+      printf(
+          "Fails at %d while there is support for %d\n",
+          i,
+          pOle->dwNumberOfDirectoryEntries);
+    yr_set_sized_string(
+        (const char*) pDirectory->name,
+        pDirectory->name_length,
+        module_object,
+        "directories[%i].name",
+        i);
+    yr_set_integer(
+        yr_le16toh(pDirectory->name_length),
+        module_object,
+        "directories[%i].name_length",
+        i);
+    yr_set_integer(
+        pDirectory->object_type,
+        module_object,
+        "directories[%i].object_type",
+        i);
+    yr_set_integer(
+        pDirectory->color_flag, module_object, "directories[%i].color_flag", i);
+    yr_set_integer(
+        yr_le32toh(pDirectory->left_sibling_id),
+        module_object,
+        "directories[%i].left_sibling_id",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectory->right_sibling_id),
+        module_object,
+        "directories[%i].right_sibling_id",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectory->child_id),
+        module_object,
+        "directories[%i].child_id",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectory->clsid.Data1),
+        module_object,
+        "directories[%i].clsid.data1",
+        i);
+    yr_set_integer(
+        yr_le16toh(pDirectory->clsid.Data2),
+        module_object,
+        "directories[%i].clsid.data2",
+        i);
+    yr_set_integer(
+        yr_le16toh(pDirectory->clsid.Data3),
+        module_object,
+        "directories[%i].clsid.data3",
+        i);
+    yr_set_integer(
+        yr_le64toh(pDirectory->clsid.Data4),
+        module_object,
+        "directories[%i].clsid.data4",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectory->state_bits),
+        module_object,
+        "directories[%i].state_bits",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectory->creation_time.dwLowDateTime),
+        module_object,
+        "directories[%i].creation_time.low",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectory->creation_time.dwHighDateTime),
+        module_object,
+        "directories[%i].creation_time.high",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectory->modified_time.dwLowDateTime),
+        module_object,
+        "directories[%i].modified_time.low",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectory->modified_time.dwHighDateTime),
+        module_object,
+        "directories[%i].modified_time.high",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectory->starting_sector_location),
+        module_object,
+        "directories[%i].starting_sector_location",
+        i);
+    yr_set_integer(
+        yr_le64toh(pDirectory->stream_size),
+        module_object,
+        "directories[%i].stream_size",
+        i);
+  }
+}
+
+void expose_fat(YR_OBJECT* module_object, PCOMPOUND_FILE pOle)
+{
+  for (int i = 0; i < pOle->dwNumberOfFatEntries; i++)
+  {
+    yr_set_integer(pOle->pFat[i], module_object, "fat[%i]", i);
+  }
 }
 
 void expose_header(YR_OBJECT* module_object, PCOMPOUND_FILE pOle)
@@ -550,6 +761,10 @@ int module_load(
     {
       parse_difat(pOle);
       expose_difat(module_object, pOle);
+      parse_fat(pOle);
+      expose_fat(module_object, pOle);
+      parse_directories(pOle);
+      expose_directories(module_object, pOle);
     }
 
     // Expose the header as it was valid
@@ -569,6 +784,10 @@ int module_unload(YR_OBJECT* module_object)
       yr_free(pOle->pDifat);
     if (pOle->pDifatLocations != NULL)
       yr_free(pOle->pDifatLocations);
+    if (pOle->pFat != NULL)
+      yr_free(pOle->pFat);
+    if (pOle->pDirectories != NULL)
+      yr_free(pOle->pDirectories);
   }
   yr_free(pOle);
   return ERROR_SUCCESS;
