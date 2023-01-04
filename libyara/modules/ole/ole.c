@@ -238,6 +238,8 @@ begin_declarations
   declare_integer_array("difat_sector_locations");
   declare_integer_array("difat");
   declare_integer_array("fat");
+  declare_integer_array("mini_fat_sector_locations");
+  declare_integer_array("mini_fat");
 
   begin_struct_array("directories")
     ;
@@ -343,6 +345,10 @@ typedef struct _COMPOUND_FILE
   DWORD dwNumberOfDifatEntries;
   DWORD* pFat;
   DWORD dwNumberOfFatEntries;
+  DWORD* pMiniFatLocations;
+  DWORD dwNumberOfMiniFatLocations;
+  DWORD* pMiniFat;
+  DWORD dwNumberOfMiniFatEntries;
   PDIRECTORY_ENTRY* pDirectories;
   DWORD dwNumberOfDirectoryEntries;
 
@@ -488,6 +494,57 @@ void parse_fat(PCOMPOUND_FILE pOle)
   }
 }
 
+void parse_mini_fat(PCOMPOUND_FILE pOle)
+{
+  // Compute the mini fat sector length
+  DWORD dwSectorSize = 1 << yr_le16toh(pOle->pHeader->sector_shift);
+  DWORD dwMiniFatLength = dwSectorSize / sizeof(DWORD);
+  DWORD dwNumberOfMiniFatSectors = yr_le32toh(
+      pOle->pHeader->number_of_mini_fat_sectors);
+
+  // Allocate the required arrays, including for the ENDOFCHAIN
+  DWORD dwNumberOfMiniFatLocations = dwNumberOfMiniFatSectors + 1;
+  pOle->pMiniFatLocations = yr_calloc(
+      dwNumberOfMiniFatLocations, sizeof(DWORD));
+
+  pOle->dwNumberOfMiniFatEntries = dwNumberOfMiniFatSectors * dwMiniFatLength;
+  pOle->pMiniFat = yr_calloc(pOle->dwNumberOfMiniFatEntries, sizeof(DWORD));
+
+  // Walk mini fat
+  DWORD dwMiniFatLocation = yr_le32toh(
+      pOle->pHeader->first_mini_fat_sector_location);
+  for (int i = 0; i < dwNumberOfMiniFatSectors &&
+                  dwMiniFatLocation <= SECTOR_NUMBER_MAXREGSECT &&
+                  dwSectorSize * (dwMiniFatLocation + 2) <= pOle->dwSize;
+       i++)
+  {
+    // Update the mini fat locations
+    pOle->dwNumberOfMiniFatLocations = i + 1;
+    pOle->pMiniFatLocations[i] = dwMiniFatLocation;
+
+    // Walk the mini fat entries
+    DWORD* pMiniFat =
+        (DWORD*) (((BYTE*) pOle->pHeader) + dwSectorSize * (dwMiniFatLocation + 1));
+
+    for (int j = 0; j < dwMiniFatLength; j++)
+    {
+      DWORD dwMiniFatEntry = pMiniFat[j];
+      pOle->pMiniFat[dwMiniFatLength * i + j] = dwMiniFatEntry;
+    }
+
+    // Define the next mini fat location
+    dwMiniFatLocation = pOle->pFat[dwMiniFatLocation];
+  }
+
+  // Update the number of set mini fat entries
+  pOle->dwNumberOfMiniFatEntries = pOle->dwNumberOfMiniFatLocations *
+                                   dwMiniFatLength;
+
+  // Store the last mini fat location, which is expected to be an ENDOFCHAIN
+  pOle->pMiniFatLocations[pOle->dwNumberOfMiniFatLocations] = dwMiniFatLocation;
+  pOle->dwNumberOfMiniFatLocations++;
+}
+
 void parse_directories(PCOMPOUND_FILE pOle)
 {
   DWORD dwSectorSize = 1 << yr_le16toh(pOle->pHeader->sector_shift);
@@ -512,7 +569,6 @@ void parse_directories(PCOMPOUND_FILE pOle)
       dwNumberOfDirectorySectors++;
     }
   }
-
 
   pOle->dwNumberOfDirectoryEntries = dwNumberOfDirectorySectors *
                                      dwDirectorySectorLength;
@@ -547,15 +603,14 @@ void expose_directories(YR_OBJECT* module_object, PCOMPOUND_FILE pOle)
   for (int i = 0; i < pOle->dwNumberOfDirectoryEntries; i++)
   {
     PDIRECTORY_ENTRY pDirectory = pOle->pDirectories[i];
-    // TODO: Validate whether Unicode is impacted by endianness
     yr_set_sized_string(
         (const char*) pDirectory->name,
-        yr_le16toh(pDirectory->name_length)-2,
+        yr_le16toh(pDirectory->name_length) - 2,
         module_object,
         "directories[%i].name",
         i);
     yr_set_integer(
-        yr_le16toh(pDirectory->name_length)-2,
+        yr_le16toh(pDirectory->name_length),
         module_object,
         "directories[%i].name_length",
         i);
@@ -726,6 +781,22 @@ void expose_difat(YR_OBJECT* module_object, PCOMPOUND_FILE pOle)
   }
 }
 
+void expose_mini_fat(YR_OBJECT* module_object, PCOMPOUND_FILE pOle)
+{
+  for (int i = 0; i < pOle->dwNumberOfMiniFatLocations; i++)
+  {
+    yr_set_integer(
+        pOle->pMiniFatLocations[i],
+        module_object,
+        "mini_fat_sector_locations[%i]",
+        i);
+  }
+  for (int i = 0; i < pOle->dwNumberOfMiniFatEntries; i++)
+  {
+    yr_set_integer(pOle->pMiniFat[i], module_object, "mini_fat[%i]", i);
+  }
+}
+
 int module_load(
     YR_SCAN_CONTEXT* context,
     YR_OBJECT* module_object,
@@ -761,6 +832,8 @@ int module_load(
       expose_fat(module_object, pOle);
       parse_directories(pOle);
       expose_directories(module_object, pOle);
+      parse_mini_fat(pOle);
+      expose_mini_fat(module_object, pOle);
     }
 
     // Expose the header as it was valid
@@ -784,6 +857,10 @@ int module_unload(YR_OBJECT* module_object)
       yr_free(pOle->pFat);
     if (pOle->pDirectories != NULL)
       yr_free(pOle->pDirectories);
+    if (pOle->pMiniFatLocations != NULL)
+      yr_free(pOle->pMiniFatLocations);
+    if (pOle->pMiniFat != NULL)
+      yr_free(pOle->pMiniFat);
   }
   yr_free(pOle);
   return ERROR_SUCCESS;
