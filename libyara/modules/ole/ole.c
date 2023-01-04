@@ -547,19 +547,15 @@ void expose_directories(YR_OBJECT* module_object, PCOMPOUND_FILE pOle)
   for (int i = 0; i < pOle->dwNumberOfDirectoryEntries; i++)
   {
     PDIRECTORY_ENTRY pDirectory = pOle->pDirectories[i];
-    if (pDirectory == NULL)
-      printf(
-          "Fails at %d while there is support for %d\n",
-          i,
-          pOle->dwNumberOfDirectoryEntries);
+    // TODO: Validate whether Unicode is impacted by endianness
     yr_set_sized_string(
         (const char*) pDirectory->name,
-        pDirectory->name_length,
+        yr_le16toh(pDirectory->name_length)-2,
         module_object,
         "directories[%i].name",
         i);
     yr_set_integer(
-        yr_le16toh(pDirectory->name_length),
+        yr_le16toh(pDirectory->name_length)-2,
         module_object,
         "directories[%i].name_length",
         i);
