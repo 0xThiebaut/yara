@@ -98,7 +98,7 @@ MODULES += libyara/modules/console/console.c
 
 MODULES += libyara/modules/string/string.c
 
-MODULES += libyara/modules/ole/ole.c
+MODULES += libyara/modules/cfb/cfb.c
 
 if CUCKOO_MODULE
 MODULES += libyara/modules/cuckoo/cuckoo.c
