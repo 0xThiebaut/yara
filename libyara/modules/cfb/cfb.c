@@ -171,8 +171,176 @@ typedef struct _DIRECTORY_ENTRY
 #define MAX_STREAM_SIZE_VERSION_3 0x80000000
 
 /**
+ * Yara structures, functions and declarations
+ */
+
+typedef struct _COMPOUND_FILE_BINARY
+{
+  PCOMPOUND_FILE_BINARY_HEADER pHeader;
+  DWORD dwSize;
+  DWORD* pDifatLocations;
+  DWORD dwNumberOfDifatLocations;
+  DWORD* pDifat;
+  DWORD dwNumberOfDifatEntries;
+  DWORD* pFat;
+  DWORD dwNumberOfFatEntries;
+  DWORD* pMiniFatLocations;
+  DWORD dwNumberOfMiniFatLocations;
+  DWORD* pMiniFat;
+  DWORD dwNumberOfMiniFatEntries;
+  PDIRECTORY_ENTRY* pDirectories;
+  DWORD dwNumberOfDirectoryEntries;
+
+} COMPOUND_FILE_BINARY, *PCOMPOUND_FILE_BINARY;
+
+static bool is_valid_header(PCOMPOUND_FILE_BINARY_HEADER pHeader);
+static void cfb_parse_difat(PCOMPOUND_FILE_BINARY pBinary);
+static void cfb_parse_fat(PCOMPOUND_FILE_BINARY pBinary);
+static void cfb_parse_mini_fat(PCOMPOUND_FILE_BINARY pBinary);
+static void cfb_parse_directories(PCOMPOUND_FILE_BINARY pBinary);
+static void cfb_expose_constants(YR_OBJECT* module_object);
+static void cfb_expose_header(
+    YR_OBJECT* module_object,
+    PCOMPOUND_FILE_BINARY_HEADER pHeader);
+static void cfb_expose_difat(
+    YR_OBJECT* module_object,
+    PCOMPOUND_FILE_BINARY pBinary);
+static void cfb_expose_fat(
+    YR_OBJECT* module_object,
+    PCOMPOUND_FILE_BINARY pBinary);
+static void cfb_expose_mini_fat(
+    YR_OBJECT* module_object,
+    PCOMPOUND_FILE_BINARY pBinary);
+static void cfb_expose_directories(
+    YR_OBJECT* module_object,
+    PDIRECTORY_ENTRY* pDirectories,
+    DWORD dwNumberOfDirectoryEntries);
+
+static bool cfb_uint8_at_directory_offset(
+    PCOMPOUND_FILE_BINARY pBinary,
+    DWORD dwDirectory,
+    ULONGLONG qwOffset,
+    uint8_t* bOut);
+
+static bool cfb_uint16_at_directory_offset(
+    PCOMPOUND_FILE_BINARY pBinary,
+    DWORD dwDirectory,
+    ULONGLONG qwOffset,
+    uint16_t* uOut);
+
+static bool cfb_uint32_at_directory_offset(
+    PCOMPOUND_FILE_BINARY pBinary,
+    DWORD dwDirectory,
+    ULONGLONG qwOffset,
+    uint32_t* uOut);
+
+static bool cfb_uint64_at_directory_offset(
+    PCOMPOUND_FILE_BINARY pBinary,
+    DWORD dwDirectory,
+    ULONGLONG qwOffset,
+    uint64_t* uOut);
+
+/**
  * Yara Declarations
  */
+
+define_function(uint8_at_directory_offset)
+{
+  DWORD directory = (DWORD) integer_argument(1);
+  ULONGLONG offset = (ULONGLONG) integer_argument(2);
+
+  PCOMPOUND_FILE_BINARY pBinary = (PCOMPOUND_FILE_BINARY) yr_module()->data;
+  uint8_t n = 0;
+
+  return_integer(
+      cfb_uint8_at_directory_offset(pBinary, directory, offset, &n)
+          ? n
+          : YR_UNDEFINED);
+}
+
+define_function(uint16_at_directory_offset_le)
+{
+  DWORD directory = (DWORD) integer_argument(1);
+  ULONGLONG offset = (ULONGLONG) integer_argument(2);
+
+  PCOMPOUND_FILE_BINARY pBinary = (PCOMPOUND_FILE_BINARY) yr_module()->data;
+  uint16_t n = 0;
+
+  return_integer(
+      cfb_uint16_at_directory_offset(pBinary, directory, offset, &n)
+          ? yr_le16toh(n)
+          : YR_UNDEFINED);
+}
+
+define_function(uint16_at_directory_offset_be)
+{
+  DWORD directory = (DWORD) integer_argument(1);
+  ULONGLONG offset = (ULONGLONG) integer_argument(2);
+
+  PCOMPOUND_FILE_BINARY pBinary = (PCOMPOUND_FILE_BINARY) yr_module()->data;
+  uint16_t n = 0;
+
+  return_integer(
+      cfb_uint16_at_directory_offset(pBinary, directory, offset, &n)
+          ? yr_be16toh(n)
+          : YR_UNDEFINED);
+}
+
+define_function(uint32_at_directory_offset_le)
+{
+  DWORD directory = (DWORD) integer_argument(1);
+  ULONGLONG offset = (ULONGLONG) integer_argument(2);
+
+  PCOMPOUND_FILE_BINARY pBinary = (PCOMPOUND_FILE_BINARY) yr_module()->data;
+  uint32_t n = 0;
+
+  return_integer(
+      cfb_uint32_at_directory_offset(pBinary, directory, offset, &n)
+          ? yr_le32toh(n)
+          : YR_UNDEFINED);
+}
+
+define_function(uint32_at_directory_offset_be)
+{
+  DWORD directory = (DWORD) integer_argument(1);
+  ULONGLONG offset = (ULONGLONG) integer_argument(2);
+
+  PCOMPOUND_FILE_BINARY pBinary = (PCOMPOUND_FILE_BINARY) yr_module()->data;
+  uint32_t n = 0;
+
+  return_integer(
+      cfb_uint32_at_directory_offset(pBinary, directory, offset, &n)
+          ? yr_be32toh(n)
+          : YR_UNDEFINED);
+}
+
+define_function(uint64_at_directory_offset_le)
+{
+  DWORD directory = (DWORD) integer_argument(1);
+  ULONGLONG offset = (ULONGLONG) integer_argument(2);
+
+  PCOMPOUND_FILE_BINARY pBinary = (PCOMPOUND_FILE_BINARY) yr_module()->data;
+  uint64_t n = 0;
+
+  return_integer(
+      cfb_uint64_at_directory_offset(pBinary, directory, offset, &n)
+          ? yr_le64toh(n)
+          : YR_UNDEFINED);
+}
+
+define_function(uint64_at_directory_offset_be)
+{
+  DWORD directory = (DWORD) integer_argument(1);
+  ULONGLONG offset = (ULONGLONG) integer_argument(2);
+
+  PCOMPOUND_FILE_BINARY pBinary = (PCOMPOUND_FILE_BINARY) yr_module()->data;
+  uint64_t n = 0;
+
+  return_integer(
+      cfb_uint64_at_directory_offset(pBinary, directory, offset, &n)
+          ? yr_be64toh(n)
+          : YR_UNDEFINED);
+}
 
 begin_declarations
   declare_integer("is_cfb");
@@ -249,6 +417,7 @@ begin_declarations
   declare_integer_array("mini_fat_sector_locations");
   declare_integer_array("mini_fat");
 
+  declare_integer("number_of_directories");
   begin_struct_array("directories")
     ;
     declare_string("name");
@@ -280,6 +449,14 @@ begin_declarations
     declare_integer("stream_size");  // uint64_t to int64_t
   end_struct("directories");
 
+  declare_function("int8_at", "ii", "i", uint8_at_directory_offset);
+  declare_function("int16_at", "ii", "i", uint16_at_directory_offset_le);
+  declare_function("int16be_at", "ii", "i", uint16_at_directory_offset_be);
+  declare_function("int32_at", "ii", "i", uint32_at_directory_offset_le);
+  declare_function("int32be_at", "ii", "i", uint32_at_directory_offset_be);
+  declare_function("int64_at", "ii", "i", uint64_at_directory_offset_le);
+  declare_function("int64be_at", "ii", "i", uint64_at_directory_offset_be);
+
 end_declarations
 
 int module_initialize(YR_MODULE* module)
@@ -292,77 +469,83 @@ int module_finalize(YR_MODULE* module)
   return ERROR_SUCCESS;
 }
 
-void expose_constants(YR_OBJECT* module_object)
+int module_load(
+    YR_SCAN_CONTEXT* context,
+    YR_OBJECT* module_object,
+    void* module_data,
+    size_t module_data_size)
 {
-  yr_set_integer(0, module_object, "is_cfb");
+  YR_MEMORY_BLOCK* block;
+  YR_MEMORY_BLOCK_ITERATOR* iterator = context->iterator;
+  PCOMPOUND_FILE_BINARY_HEADER pHeader;
 
-  yr_set_integer(
-      SECTOR_NUMBER_MAXREGSECT, module_object, "SECTOR_NUMBER_MAXREGSECT");
-  yr_set_integer(SECTOR_NUMBER_DIFSECT, module_object, "SECTOR_NUMBER_DIFSECT");
-  yr_set_integer(SECTOR_NUMBER_FATSECT, module_object, "SECTOR_NUMBER_FATSECT");
-  yr_set_integer(
-      SECTOR_NUMBER_ENDOFCHAIN, module_object, "SECTOR_NUMBER_ENDOFCHAIN");
-  yr_set_integer(
-      SECTOR_NUMBER_FREESECT, module_object, "SECTOR_NUMBER_FREESECT");
-  yr_set_integer(HEADER_SIGNATURE, module_object, "HEADER_SIGNATURE");
-  yr_set_integer(VERSION_MINOR, module_object, "VERSION_MINOR");
-  yr_set_integer(VERSION_MAJOR_3, module_object, "VERSION_MAJOR_3");
-  yr_set_integer(VERSION_MAJOR_4, module_object, "VERSION_MAJOR_4");
-  yr_set_integer(
-      BYTE_ORDER_LITTLE_ENDIAN, module_object, "BYTE_ORDER_LITTLE_ENDIAN");
-  yr_set_integer(
-      SECTOR_SHIFT_VERSION_3, module_object, "SECTOR_SHIFT_VERSION_3");
-  yr_set_integer(
-      SECTOR_SHIFT_VERSION_4, module_object, "SECTOR_SHIFT_VERSION_4");
-  yr_set_integer(SECTOR_SIZE_VERSION_3, module_object, "SECTOR_SIZE_VERSION_3");
-  yr_set_integer(SECTOR_SIZE_VERSION_4, module_object, "SECTOR_SIZE_VERSION_4");
-  yr_set_integer(MINI_SECTOR_SHIFT, module_object, "MINI_SECTOR_SHIFT");
-  yr_set_integer(MINI_SECTOR_SIZE, module_object, "MINI_SECTOR_SIZE");
-  yr_set_integer(
-      NUMBER_OF_DIRECTORY_SECTORS_VERSION_3,
-      module_object,
-      "NUMBER_OF_DIRECTORY_SECTORS_VERSION_3");
-  yr_set_integer(
-      MINI_STREAM_CUTOFF_SIZE, module_object, "MINI_STREAM_CUTOFF_SIZE");
-  yr_set_integer(
-      MINI_STREAM_CUTOFF_SIZE, module_object, "MINI_STREAM_CUTOFF_SIZE");
-  yr_set_integer(
-      STREAM_NUMBER_MAXREGSID, module_object, "STREAM_NUMBER_MAXREGSID");
-  yr_set_integer(
-      STREAM_NUMBER_NOSTREAM, module_object, "STREAM_NUMBER_NOSTREAM");
-  yr_set_integer(OBJECT_TYPE_UNKNOWN, module_object, "OBJECT_TYPE_UNKNOWN");
-  yr_set_integer(
-      OBJECT_TYPE_UNALLOCATED, module_object, "OBJECT_TYPE_UNALLOCATED");
-  yr_set_integer(OBJECT_TYPE_STORAGE, module_object, "OBJECT_TYPE_STORAGE");
-  yr_set_integer(OBJECT_TYPE_STREAM, module_object, "OBJECT_TYPE_STREAM");
-  yr_set_integer(
-      OBJECT_TYPE_ROOT_STORAGE, module_object, "OBJECT_TYPE_ROOT_STORAGE");
-  yr_set_integer(COLOR_FLAG_RED, module_object, "COLOR_FLAG_RED");
-  yr_set_integer(COLOR_FLAG_BLACK, module_object, "COLOR_FLAG_BLACK");
-  yr_set_integer(
-      MAX_STREAM_SIZE_VERSION_3, module_object, "MAX_STREAM_SIZE_VERSION_3");
+  cfb_expose_constants(module_object);
+
+  foreach_memory_block(iterator, block)
+  {
+    // Make sure the header is at least large enough
+    pHeader = (PCOMPOUND_FILE_BINARY_HEADER) block->fetch_data(block);
+
+    if (pHeader == NULL || block->size < sizeof(COMPOUND_FILE_BINARY_HEADER))
+      continue;
+
+    // Allocate a compound file
+    PCOMPOUND_FILE_BINARY pBinary = yr_calloc(1, sizeof(COMPOUND_FILE_BINARY));
+    module_object->data = pBinary;
+    pBinary->pHeader = pHeader;
+    pBinary->dwSize = block->size;
+    pBinary->pFat = NULL;
+    pBinary->pDifat = NULL;
+    pBinary->pMiniFat = NULL;
+    pBinary->pMiniFatLocations = NULL;
+    pBinary->pDifatLocations = NULL;
+    // Only parse the compound file if the header is valid
+    if (is_valid_header(pHeader))
+    {
+      cfb_parse_difat(pBinary);
+      cfb_expose_difat(module_object, pBinary);
+      cfb_parse_fat(pBinary);
+      cfb_expose_fat(module_object, pBinary);
+      cfb_parse_directories(pBinary);
+      cfb_expose_directories(
+          module_object,
+          pBinary->pDirectories,
+          pBinary->dwNumberOfDirectoryEntries);
+      cfb_parse_mini_fat(pBinary);
+      cfb_expose_mini_fat(module_object, pBinary);
+    }
+
+    // Expose the header as it was valid
+    cfb_expose_header(module_object, pBinary->pHeader);
+    break;
+  }
+
+  return ERROR_SUCCESS;
 }
 
-typedef struct _COMPOUND_FILE_BINARY
+int module_unload(YR_OBJECT* module_object)
 {
-  PCOMPOUND_FILE_BINARY_HEADER pHeader;
-  DWORD dwSize;
-  DWORD* pDifatLocations;
-  DWORD dwNumberOfDifatLocations;
-  DWORD* pDifat;
-  DWORD dwNumberOfDifatEntries;
-  DWORD* pFat;
-  DWORD dwNumberOfFatEntries;
-  DWORD* pMiniFatLocations;
-  DWORD dwNumberOfMiniFatLocations;
-  DWORD* pMiniFat;
-  DWORD dwNumberOfMiniFatEntries;
-  PDIRECTORY_ENTRY* pDirectories;
-  DWORD dwNumberOfDirectoryEntries;
+  PCOMPOUND_FILE_BINARY pBinary = module_object->data;
+  if (pBinary)
+  {
+    if (pBinary->pDifat)
+      yr_free(pBinary->pDifat);
+    if (pBinary->pDifatLocations)
+      yr_free(pBinary->pDifatLocations);
+    if (pBinary->pFat)
+      yr_free(pBinary->pFat);
+    if (pBinary->pDirectories)
+      yr_free(pBinary->pDirectories);
+    if (pBinary->pMiniFatLocations)
+      yr_free(pBinary->pMiniFatLocations);
+    if (pBinary->pMiniFat)
+      yr_free(pBinary->pMiniFat);
+    yr_free(pBinary);
+  }
+  return ERROR_SUCCESS;
+}
 
-} COMPOUND_FILE_BINARY, *PCOMPOUND_FILE_BINARY;
-
-bool is_valid_header(PCOMPOUND_FILE_BINARY_HEADER pHeader)
+static bool is_valid_header(PCOMPOUND_FILE_BINARY_HEADER pHeader)
 {
   return
       // Identification signature for the compound file structure, and MUST be
@@ -406,7 +589,7 @@ bool is_valid_header(PCOMPOUND_FILE_BINARY_HEADER pHeader)
       yr_le32toh(pHeader->mini_stream_cutoff_size) == MINI_STREAM_CUTOFF_SIZE;
 }
 
-void parse_difat(PCOMPOUND_FILE_BINARY pBinary)
+static void cfb_parse_difat(PCOMPOUND_FILE_BINARY pBinary)
 {
   // Compute the header difat and sector difat length
   DWORD dwHeaderDifatLength = sizeof(pBinary->pHeader->difat) / sizeof(DWORD);
@@ -469,7 +652,7 @@ void parse_difat(PCOMPOUND_FILE_BINARY pBinary)
   pBinary->dwNumberOfDifatLocations++;
 }
 
-void parse_fat(PCOMPOUND_FILE_BINARY pBinary)
+static void cfb_parse_fat(PCOMPOUND_FILE_BINARY pBinary)
 {
   // Compute the fat sector length
   DWORD dwSectorSize = 1 << yr_le16toh(pBinary->pHeader->sector_shift);
@@ -502,7 +685,7 @@ void parse_fat(PCOMPOUND_FILE_BINARY pBinary)
   }
 }
 
-void parse_mini_fat(PCOMPOUND_FILE_BINARY pBinary)
+static void cfb_parse_mini_fat(PCOMPOUND_FILE_BINARY pBinary)
 {
   // Compute the mini fat sector length
   DWORD dwSectorSize = 1 << yr_le16toh(pBinary->pHeader->sector_shift);
@@ -556,7 +739,7 @@ void parse_mini_fat(PCOMPOUND_FILE_BINARY pBinary)
   pBinary->dwNumberOfMiniFatLocations++;
 }
 
-void parse_directories(PCOMPOUND_FILE_BINARY pBinary)
+static void cfb_parse_directories(PCOMPOUND_FILE_BINARY pBinary)
 {
   DWORD dwSectorSize = 1 << yr_le16toh(pBinary->pHeader->sector_shift);
   DWORD dwDirectorySectorLength = dwSectorSize / sizeof(DIRECTORY_ENTRY);
@@ -610,117 +793,61 @@ void parse_directories(PCOMPOUND_FILE_BINARY pBinary)
   }
 }
 
-void expose_directories(YR_OBJECT* module_object, PCOMPOUND_FILE_BINARY pBinary)
+static void cfb_expose_constants(YR_OBJECT* module_object)
 {
-  for (int i = 0; i < pBinary->dwNumberOfDirectoryEntries; i++)
-  {
-    PDIRECTORY_ENTRY pDirectory = pBinary->pDirectories[i];
-    yr_set_sized_string(
-        (const char*) pDirectory->name,
-        yr_le16toh(pDirectory->name_length) - 2,
-        module_object,
-        "directories[%i].name",
-        i);
-    yr_set_integer(
-        yr_le16toh(pDirectory->name_length),
-        module_object,
-        "directories[%i].name_length",
-        i);
-    yr_set_integer(
-        pDirectory->object_type,
-        module_object,
-        "directories[%i].object_type",
-        i);
-    yr_set_integer(
-        pDirectory->color_flag, module_object, "directories[%i].color_flag", i);
-    yr_set_integer(
-        yr_le32toh(pDirectory->left_sibling_id),
-        module_object,
-        "directories[%i].left_sibling_id",
-        i);
-    yr_set_integer(
-        yr_le32toh(pDirectory->right_sibling_id),
-        module_object,
-        "directories[%i].right_sibling_id",
-        i);
-    yr_set_integer(
-        yr_le32toh(pDirectory->child_id),
-        module_object,
-        "directories[%i].child_id",
-        i);
-    yr_set_integer(
-        yr_le32toh(pDirectory->clsid.Data1),
-        module_object,
-        "directories[%i].clsid.data1",
-        i);
-    yr_set_integer(
-        yr_le16toh(pDirectory->clsid.Data2),
-        module_object,
-        "directories[%i].clsid.data2",
-        i);
-    yr_set_integer(
-        yr_le16toh(pDirectory->clsid.Data3),
-        module_object,
-        "directories[%i].clsid.data3",
-        i);
-    for (int j = 0; j < sizeof(pDirectory->clsid.Data4) / sizeof(BYTE); j++)
-    {
-      yr_set_integer(
-          pDirectory->clsid.Data4[j],
-          module_object,
-          "directories[%i].clsid.data4[%i]",
-          i,
-          j);
-    }
-    yr_set_integer(
-        yr_le32toh(pDirectory->state_bits),
-        module_object,
-        "directories[%i].state_bits",
-        i);
-    yr_set_integer(
-        yr_le32toh(pDirectory->creation_time.dwLowDateTime),
-        module_object,
-        "directories[%i].creation_time.low",
-        i);
-    yr_set_integer(
-        yr_le32toh(pDirectory->creation_time.dwHighDateTime),
-        module_object,
-        "directories[%i].creation_time.high",
-        i);
-    yr_set_integer(
-        yr_le32toh(pDirectory->modified_time.dwLowDateTime),
-        module_object,
-        "directories[%i].modified_time.low",
-        i);
-    yr_set_integer(
-        yr_le32toh(pDirectory->modified_time.dwHighDateTime),
-        module_object,
-        "directories[%i].modified_time.high",
-        i);
-    yr_set_integer(
-        yr_le32toh(pDirectory->starting_sector_location),
-        module_object,
-        "directories[%i].starting_sector_location",
-        i);
-    yr_set_integer(
-        yr_le64toh(pDirectory->stream_size),
-        module_object,
-        "directories[%i].stream_size",
-        i);
-  }
+  yr_set_integer(0, module_object, "is_cfb");
+
+  yr_set_integer(
+      SECTOR_NUMBER_MAXREGSECT, module_object, "SECTOR_NUMBER_MAXREGSECT");
+  yr_set_integer(SECTOR_NUMBER_DIFSECT, module_object, "SECTOR_NUMBER_DIFSECT");
+  yr_set_integer(SECTOR_NUMBER_FATSECT, module_object, "SECTOR_NUMBER_FATSECT");
+  yr_set_integer(
+      SECTOR_NUMBER_ENDOFCHAIN, module_object, "SECTOR_NUMBER_ENDOFCHAIN");
+  yr_set_integer(
+      SECTOR_NUMBER_FREESECT, module_object, "SECTOR_NUMBER_FREESECT");
+  yr_set_integer(HEADER_SIGNATURE, module_object, "HEADER_SIGNATURE");
+  yr_set_integer(VERSION_MINOR, module_object, "VERSION_MINOR");
+  yr_set_integer(VERSION_MAJOR_3, module_object, "VERSION_MAJOR_3");
+  yr_set_integer(VERSION_MAJOR_4, module_object, "VERSION_MAJOR_4");
+  yr_set_integer(
+      BYTE_ORDER_LITTLE_ENDIAN, module_object, "BYTE_ORDER_LITTLE_ENDIAN");
+  yr_set_integer(
+      SECTOR_SHIFT_VERSION_3, module_object, "SECTOR_SHIFT_VERSION_3");
+  yr_set_integer(
+      SECTOR_SHIFT_VERSION_4, module_object, "SECTOR_SHIFT_VERSION_4");
+  yr_set_integer(SECTOR_SIZE_VERSION_3, module_object, "SECTOR_SIZE_VERSION_3");
+  yr_set_integer(SECTOR_SIZE_VERSION_4, module_object, "SECTOR_SIZE_VERSION_4");
+  yr_set_integer(MINI_SECTOR_SHIFT, module_object, "MINI_SECTOR_SHIFT");
+  yr_set_integer(MINI_SECTOR_SIZE, module_object, "MINI_SECTOR_SIZE");
+  yr_set_integer(
+      NUMBER_OF_DIRECTORY_SECTORS_VERSION_3,
+      module_object,
+      "NUMBER_OF_DIRECTORY_SECTORS_VERSION_3");
+  yr_set_integer(
+      MINI_STREAM_CUTOFF_SIZE, module_object, "MINI_STREAM_CUTOFF_SIZE");
+  yr_set_integer(
+      MINI_STREAM_CUTOFF_SIZE, module_object, "MINI_STREAM_CUTOFF_SIZE");
+  yr_set_integer(
+      STREAM_NUMBER_MAXREGSID, module_object, "STREAM_NUMBER_MAXREGSID");
+  yr_set_integer(
+      STREAM_NUMBER_NOSTREAM, module_object, "STREAM_NUMBER_NOSTREAM");
+  yr_set_integer(OBJECT_TYPE_UNKNOWN, module_object, "OBJECT_TYPE_UNKNOWN");
+  yr_set_integer(
+      OBJECT_TYPE_UNALLOCATED, module_object, "OBJECT_TYPE_UNALLOCATED");
+  yr_set_integer(OBJECT_TYPE_STORAGE, module_object, "OBJECT_TYPE_STORAGE");
+  yr_set_integer(OBJECT_TYPE_STREAM, module_object, "OBJECT_TYPE_STREAM");
+  yr_set_integer(
+      OBJECT_TYPE_ROOT_STORAGE, module_object, "OBJECT_TYPE_ROOT_STORAGE");
+  yr_set_integer(COLOR_FLAG_RED, module_object, "COLOR_FLAG_RED");
+  yr_set_integer(COLOR_FLAG_BLACK, module_object, "COLOR_FLAG_BLACK");
+  yr_set_integer(
+      MAX_STREAM_SIZE_VERSION_3, module_object, "MAX_STREAM_SIZE_VERSION_3");
 }
 
-void expose_fat(YR_OBJECT* module_object, PCOMPOUND_FILE_BINARY pBinary)
+static void cfb_expose_header(
+    YR_OBJECT* module_object,
+    PCOMPOUND_FILE_BINARY_HEADER pHeader)
 {
-  for (int i = 0; i < pBinary->dwNumberOfFatEntries; i++)
-  {
-    yr_set_integer(pBinary->pFat[i], module_object, "fat[%i]", i);
-  }
-}
-
-void expose_header(YR_OBJECT* module_object, PCOMPOUND_FILE_BINARY pBinary)
-{
-  PCOMPOUND_FILE_BINARY_HEADER pHeader = pBinary->pHeader;
   yr_set_integer(is_valid_header(pHeader), module_object, "is_cfb");
 
   yr_set_integer(yr_le64toh(pHeader->signature), module_object, "signature");
@@ -784,7 +911,9 @@ void expose_header(YR_OBJECT* module_object, PCOMPOUND_FILE_BINARY pBinary)
       "number_of_difat_sectors");
 }
 
-void expose_difat(YR_OBJECT* module_object, PCOMPOUND_FILE_BINARY pBinary)
+static void cfb_expose_difat(
+    YR_OBJECT* module_object,
+    PCOMPOUND_FILE_BINARY pBinary)
 {
   for (int i = 0; i < pBinary->dwNumberOfDifatLocations; i++)
   {
@@ -800,7 +929,19 @@ void expose_difat(YR_OBJECT* module_object, PCOMPOUND_FILE_BINARY pBinary)
   }
 }
 
-void expose_mini_fat(YR_OBJECT* module_object, PCOMPOUND_FILE_BINARY pBinary)
+static void cfb_expose_fat(
+    YR_OBJECT* module_object,
+    PCOMPOUND_FILE_BINARY pBinary)
+{
+  for (int i = 0; i < pBinary->dwNumberOfFatEntries; i++)
+  {
+    yr_set_integer(pBinary->pFat[i], module_object, "fat[%i]", i);
+  }
+}
+
+static void cfb_expose_mini_fat(
+    YR_OBJECT* module_object,
+    PCOMPOUND_FILE_BINARY pBinary)
 {
   for (int i = 0; i < pBinary->dwNumberOfMiniFatLocations; i++)
   {
@@ -816,73 +957,232 @@ void expose_mini_fat(YR_OBJECT* module_object, PCOMPOUND_FILE_BINARY pBinary)
   }
 }
 
-int module_load(
-    YR_SCAN_CONTEXT* context,
+static void cfb_expose_directories(
     YR_OBJECT* module_object,
-    void* module_data,
-    size_t module_data_size)
+    PDIRECTORY_ENTRY* pDirectories,
+    DWORD dwNumberOfDirectoryEntries)
 {
-  YR_MEMORY_BLOCK* block;
-  YR_MEMORY_BLOCK_ITERATOR* iterator = context->iterator;
-  PCOMPOUND_FILE_BINARY_HEADER pHeader;
-
-  expose_constants(module_object);
-
-  foreach_memory_block(iterator, block)
+  for (int i = 0; i < dwNumberOfDirectoryEntries; i++)
   {
-    // Make sure the header is at least large enough
-    pHeader = (PCOMPOUND_FILE_BINARY_HEADER) block->fetch_data(block);
-
-    if (pHeader == NULL || block->size < sizeof(COMPOUND_FILE_BINARY_HEADER))
-      continue;
-
-    // Allocate a compound file
-    PCOMPOUND_FILE_BINARY pBinary = yr_calloc(1, sizeof(COMPOUND_FILE_BINARY));
-    module_object->data = pBinary;
-    pBinary->pHeader = pHeader;
-    pBinary->dwSize = block->size;
-
-    // Only parse the compound file if the header is valid
-    if (is_valid_header(pHeader))
+    yr_set_integer(
+        pDirectories[i]->object_type,
+        module_object,
+        "directories[%i].object_type",
+        i);
+    // Do not set the name if the directory is unallocated or if the name length
+    // does not make sense
+    if (pDirectories[i]->object_type != OBJECT_TYPE_UNALLOCATED &&
+        yr_le16toh(pDirectories[i]->name_length) >= 2 &&
+        yr_le16toh(pDirectories[i]->name_length) <= 64)
+      yr_set_sized_string(
+          (const char*) pDirectories[i]->name,
+          yr_le16toh(pDirectories[i]->name_length) - 2,
+          module_object,
+          "directories[%i].name",
+          i);
+    yr_set_integer(
+        yr_le16toh(pDirectories[i]->name_length),
+        module_object,
+        "directories[%i].name_length",
+        i);
+    yr_set_integer(
+        pDirectories[i]->color_flag,
+        module_object,
+        "directories[%i].color_flag",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectories[i]->left_sibling_id),
+        module_object,
+        "directories[%i].left_sibling_id",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectories[i]->right_sibling_id),
+        module_object,
+        "directories[%i].right_sibling_id",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectories[i]->child_id),
+        module_object,
+        "directories[%i].child_id",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectories[i]->clsid.Data1),
+        module_object,
+        "directories[%i].clsid.data1",
+        i);
+    yr_set_integer(
+        yr_le16toh(pDirectories[i]->clsid.Data2),
+        module_object,
+        "directories[%i].clsid.data2",
+        i);
+    yr_set_integer(
+        yr_le16toh(pDirectories[i]->clsid.Data3),
+        module_object,
+        "directories[%i].clsid.data3",
+        i);
+    for (int j = 0; j < sizeof(pDirectories[i]->clsid.Data4) / sizeof(BYTE);
+         j++)
     {
-      parse_difat(pBinary);
-      expose_difat(module_object, pBinary);
-      parse_fat(pBinary);
-      expose_fat(module_object, pBinary);
-      parse_directories(pBinary);
-      expose_directories(module_object, pBinary);
-      parse_mini_fat(pBinary);
-      expose_mini_fat(module_object, pBinary);
+      yr_set_integer(
+          pDirectories[i]->clsid.Data4[j],
+          module_object,
+          "directories[%i].clsid.data4[%i]",
+          i,
+          j);
     }
-
-    // Expose the header as it was valid
-    expose_header(module_object, pBinary);
-    break;
+    yr_set_integer(
+        yr_le32toh(pDirectories[i]->state_bits),
+        module_object,
+        "directories[%i].state_bits",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectories[i]->creation_time.dwLowDateTime),
+        module_object,
+        "directories[%i].creation_time.low",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectories[i]->creation_time.dwHighDateTime),
+        module_object,
+        "directories[%i].creation_time.high",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectories[i]->modified_time.dwLowDateTime),
+        module_object,
+        "directories[%i].modified_time.low",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectories[i]->modified_time.dwHighDateTime),
+        module_object,
+        "directories[%i].modified_time.high",
+        i);
+    yr_set_integer(
+        yr_le32toh(pDirectories[i]->starting_sector_location),
+        module_object,
+        "directories[%i].starting_sector_location",
+        i);
+    yr_set_integer(
+        yr_le64toh(pDirectories[i]->stream_size),
+        module_object,
+        "directories[%i].stream_size",
+        i);
   }
 
-  return ERROR_SUCCESS;
+  yr_set_integer(
+      yr_le64toh(dwNumberOfDirectoryEntries),
+      module_object,
+      "number_of_directories");
 }
 
-int module_unload(YR_OBJECT* module_object)
+static bool cfb_uint8_at_directory_offset(
+    PCOMPOUND_FILE_BINARY pBinary,
+    DWORD dwDirectory,
+    ULONGLONG qwOffset,
+    uint8_t* bOut)
 {
-  PCOMPOUND_FILE_BINARY pBinary = module_object->data;
-  if (pBinary != NULL)
+  // Require some valid CFB
+  if (pBinary == NULL || pBinary->pHeader == NULL ||
+      !is_valid_header(pBinary->pHeader) || pBinary->pDirectories == NULL ||
+      dwDirectory >= pBinary->dwNumberOfDirectoryEntries ||
+      pBinary->pDirectories[dwDirectory]->object_type != OBJECT_TYPE_STREAM ||
+      qwOffset >= pBinary->pDirectories[dwDirectory]->stream_size)
+    return false;
+
+  // Identify the sector's table
+  DWORD* pTable = pBinary->pDirectories[dwDirectory]->stream_size >=
+                          MINI_STREAM_CUTOFF_SIZE
+                      ? pBinary->pFat
+                      : pBinary->pMiniFat;
+  DWORD dwTableSize = pBinary->pDirectories[dwDirectory]->stream_size >=
+                              MINI_STREAM_CUTOFF_SIZE
+                          ? pBinary->dwNumberOfFatEntries
+                          : pBinary->dwNumberOfMiniFatEntries;
+
+  // Identify the sector's size
+  DWORD dwSize = pBinary->pDirectories[dwDirectory]->stream_size >=
+                         MINI_STREAM_CUTOFF_SIZE
+                     ? (1 << pBinary->pHeader->sector_shift)
+                     : MINI_SECTOR_SIZE;
+
+  // Walk the table to find the correct sector
+  DWORD dwLocation =
+      pBinary->pDirectories[dwDirectory]->starting_sector_location;
+  while (qwOffset >= dwSize)
   {
-    if (pBinary->pDifat != NULL)
-      yr_free(pBinary->pDifat);
-    if (pBinary->pDifatLocations != NULL)
-      yr_free(pBinary->pDifatLocations);
-    if (pBinary->pFat != NULL)
-      yr_free(pBinary->pFat);
-    if (pBinary->pDirectories != NULL)
-      yr_free(pBinary->pDirectories);
-    if (pBinary->pMiniFatLocations != NULL)
-      yr_free(pBinary->pMiniFatLocations);
-    if (pBinary->pMiniFat != NULL)
-      yr_free(pBinary->pMiniFat);
+    if (dwLocation >= dwTableSize)
+      return false;
+    dwLocation = pTable[dwLocation];
+    qwOffset -= dwSize;
   }
-  yr_free(pBinary);
-  return ERROR_SUCCESS;
+
+  // Convert the Mini FAT location/offset to FAT location/offset
+  if (pBinary->pDirectories[dwDirectory]->stream_size < MINI_STREAM_CUTOFF_SIZE)
+  {
+    qwOffset += dwLocation * MINI_SECTOR_SIZE;
+    dwLocation = pBinary->pDirectories[0]->starting_sector_location;
+    dwSize = (1 << pBinary->pHeader->sector_shift);
+    while (qwOffset >= dwSize)
+    {
+      if (dwLocation >= pBinary->dwNumberOfFatEntries)
+        return NULL;
+      dwLocation = pBinary->pFat[dwLocation];
+      qwOffset -= dwSize;
+    }
+  }
+
+  // Convert the location to a file offset
+  *bOut = *(((BYTE*) pBinary->pHeader) + dwSize * (dwLocation + 1) + qwOffset);
+  return true;
+}
+
+static bool cfb_uint16_at_directory_offset(
+    PCOMPOUND_FILE_BINARY pBinary,
+    DWORD dwDirectory,
+    ULONGLONG qwOffset,
+    uint16_t* uOut)
+{
+  uint8_t n;
+  for (int i = 0; i < sizeof(*uOut); i++)
+  {
+    if (!cfb_uint8_at_directory_offset(pBinary, dwDirectory, qwOffset + i, &n))
+      return false;
+    *uOut <<= 8;
+    *uOut += n;
+  }
+  return true;
+}
+
+static bool cfb_uint32_at_directory_offset(
+    PCOMPOUND_FILE_BINARY pBinary,
+    DWORD dwDirectory,
+    ULONGLONG qwOffset,
+    uint32_t* uOut)
+{
+  uint8_t n;
+  for (int i = 0; i < sizeof(*uOut); i++)
+  {
+    if (!cfb_uint8_at_directory_offset(pBinary, dwDirectory, qwOffset + i, &n))
+      return false;
+    *uOut <<= 8;
+    *uOut += n;
+  }
+  return true;
+}
+
+static bool cfb_uint64_at_directory_offset(
+    PCOMPOUND_FILE_BINARY pBinary,
+    DWORD dwDirectory,
+    ULONGLONG qwOffset,
+    uint64_t* uOut)
+{
+  uint8_t n;
+  for (int i = 0; i < sizeof(*uOut); i++)
+  {
+    if (!cfb_uint8_at_directory_offset(pBinary, dwDirectory, qwOffset + i, &n))
+      return false;
+    *uOut <<= 8;
+    *uOut += n;
+  }
+  return true;
 }
 
 #pragma clang diagnostic pop
