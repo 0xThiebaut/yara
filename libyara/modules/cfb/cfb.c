@@ -1,5 +1,3 @@
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "EmptyDeclOrStmt"
 #include <wchar.h>
 #include <yara/endian.h>
 #include <yara/modules.h>
@@ -1184,5 +1182,3 @@ static bool cfb_uint64_at_directory_offset(
   }
   return true;
 }
-
-#pragma clang diagnostic pop
