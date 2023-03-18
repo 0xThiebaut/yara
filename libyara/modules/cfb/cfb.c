@@ -1091,10 +1091,12 @@ static void cfb_expose_directories(
         "directories[%i].object_type",
         i);
     // Do not set the name if the directory is unallocated or if the name length
-    // does not make sense
+    // does not make sense or if the name is not NULL terminated.
     if (pDirectories[i]->object_type != OBJECT_TYPE_UNALLOCATED &&
         yr_le16toh(pDirectories[i]->name_length) >= 2 &&
-        yr_le16toh(pDirectories[i]->name_length) <= 64)
+        yr_le16toh(pDirectories[i]->name_length) <= 64 &&
+        pDirectories[i]->name[yr_le16toh(pDirectories[i]->name_length)-1] == 0 &&
+        pDirectories[i]->name[yr_le16toh(pDirectories[i]->name_length)-2] == 0)
       yr_set_sized_string(
           (const char *) pDirectories[i]->name,
           yr_le16toh(pDirectories[i]->name_length) - 2,
